@@ -1,12 +1,13 @@
 'use client';
 
-import { useState, useRef } from 'react';
-import { Mic, Music } from 'lucide-react';
+import { useState, useRef, useEffect } from 'react';
+import { Mic, Music, Play, Pause, RotateCcw, Sliders } from 'lucide-react';
 import { KTVNode, KTVVolume } from '../types/types';
 
 export default function KTVPage() {
 	const [isEngineRunning, setIsEngineRunning] = useState(false);
-	const [volume] = useState<KTVVolume>({
+	const [isPlaying, setIsPlaying] = useState(false);
+	const [volume, setVolumeState] = useState<KTVVolume>({
 		mic: 0.8,
 		music: 0.6,
 		echo: 0.3,
@@ -15,39 +16,54 @@ export default function KTVPage() {
 		ducking: -35,
 	});
 
-	// 用 useRef 保持 Audio Node 引用，避免 Re-render 導致中斷
+	// 音樂播放相關狀態
+	const [audioBuffer, setAudioBuffer] = useState<AudioBuffer | null>(null);
+	const [startTime, setStartTime] = useState(0); // 紀錄開始播放的絕對時間
+	const [pausedAt, setPausedAt] = useState(0); // 紀錄暫停時已播放了幾秒
+	const [isResetting, setIsResetting] = useState(false);
+
 	const audioCtx = useRef<AudioContext | null>(null);
 	const node = useRef<KTVNode>({});
 	const musicSource = useRef<AudioBufferSourceNode | null>(null);
 
-	const setVolume = (rampTime = 0.05) => {
-		const ctx = audioCtx.current;
-		const n = node.current;
+	useEffect(() => {
+		const applyVolumeSettings = (rampTime = 0.05) => {
+			const ctx = audioCtx.current;
+			const n = node.current;
+			if (!ctx) return;
 
-		if (!ctx) return;
+			const { mic, music, echo, delay, ratio, ducking } = volume;
+			const now = ctx.currentTime;
 
-		const { mic, music, echo, delay, ratio, ducking } = volume;
-		const now = ctx.currentTime;
+			n.micGain?.gain.setTargetAtTime(mic, now, rampTime);
+			n.musicGain?.gain.setTargetAtTime(music, now, rampTime);
+			n.echoFeedback?.gain.setTargetAtTime(echo, now, rampTime);
+			n.echoDelay?.delayTime.setTargetAtTime(delay, now, rampTime);
 
-		// 1. 增益類參數 (GainNodes)
-		n.micGain?.gain.setTargetAtTime(mic, now, rampTime);
-		n.musicGain?.gain.setTargetAtTime(music, now, rampTime);
-		n.echoFeedback?.gain.setTargetAtTime(echo, now, rampTime);
+			if (n.compressor) {
+				n.compressor.ratio.setTargetAtTime(ratio, now, rampTime);
+				n.compressor.threshold.setTargetAtTime(ducking, now, rampTime);
+			}
+		};
 
-		// 2. 時間類參數 (DelayNode)
-		// 注意：delayTime 若劇烈變動會產生類比磁帶轉速改變的音效 (Pitch shift)
-		n.echoDelay?.delayTime.setTargetAtTime(delay, now, rampTime);
-
-		// 3. 動態處理類參數 (DynamicsCompressorNode)
-		if (n.compressor) {
-			// 壓縮比 (Ratio)
-			n.compressor.ratio.setTargetAtTime(ratio, now, rampTime);
-			// 閃避門檻 (Threshold) - 控制音樂被壓低的靈敏度
-			n.compressor.threshold.setTargetAtTime(ducking, now, rampTime);
+		if (isEngineRunning) {
+			applyVolumeSettings();
 		}
+	}, [volume, isEngineRunning]);
+
+	const handleReset = () => {
+		// 1. 執行原有的邏輯
+		musicSource.current?.stop();
+		setPausedAt(0);
+		setIsPlaying(false);
+
+		// 2. 觸發亮燈效果
+		setIsResetting(true);
+
+		// 3. 短暫延遲後關閉亮燈（給使用者視覺反饋的時間）
+		setTimeout(() => setIsResetting(false), 200);
 	};
 
-	// 初始化 Web Audio 節點圖 (Audio Graph)
 	const initAudio = async () => {
 		if (audioCtx.current) return;
 
@@ -58,13 +74,9 @@ export default function KTVPage() {
 
 			const stream = await navigator.mediaDevices.getUserMedia({
 				audio: {
-					// note: 48000 44100, 22050 is quality options
 					sampleRate: { ideal: 48000 },
-					// note: cancel echo
 					echoCancellation: true,
-					// turn off mechanism to lock volume auto
 					autoGainControl: false,
-					// try to rm noise
 					noiseSuppression: { ideal: true },
 					channelCount: 1,
 				},
@@ -78,88 +90,113 @@ export default function KTVPage() {
 			node.current.echoFeedback = ctx.createGain();
 			node.current.compressor = ctx.createDynamicsCompressor();
 			node.current.analyser = ctx.createAnalyser();
-			node.current.analyser.fftSize = 256;
 
-			// 配置 Ducking (當人聲進來時自動壓低背景音樂)
-			node.current.compressor.threshold.setValueAtTime(-35, ctx.currentTime);
-			node.current.compressor.ratio.setValueAtTime(12, ctx.currentTime);
-
-			// 連接節點
-			// 人聲路徑: Mic -> Gain -> Analyser & Compressor
+			// 連接人聲路徑
 			node.current.micSource.connect(node.current.micGain);
-			node.current.micGain.connect(node.current.analyser);
 			node.current.micGain.connect(node.current.compressor);
 
-			// 迴響路徑: MicGain -> Delay -> Feedback -> Delay (迴圈) -> Compressor
-			node.current.echoDelay.delayTime.value = 0.2;
+			// 連接迴響路徑
 			node.current.micGain.connect(node.current.echoDelay);
 			node.current.echoDelay.connect(node.current.echoFeedback);
 			node.current.echoFeedback.connect(node.current.echoDelay);
 			node.current.echoFeedback.connect(node.current.compressor);
 
+			// 連接音樂路徑 (音樂也進入 compressor 才能實現 Ducking)
+			node.current.musicGain.connect(node.current.compressor);
+
 			// 最終輸出
 			node.current.compressor.connect(ctx.destination);
 
+			node.current.stream = stream;
 			setIsEngineRunning(true);
-			setVolume();
 		} catch (err) {
 			console.error('Audio failed:', err);
 			alert('請確保已開啟麥克風權限');
 		}
 	};
 
-	// 定義事件型別
-	type UploadEvent = React.ChangeEvent<HTMLInputElement>;
-
-	const handleFileUpload = async (e: UploadEvent) => {
-		// 使用 Optional Chaining 與 Guard Clause
-		const file = e.target.files?.[0];
-		if (!file) return;
-
-		if (!audioCtx.current) {
-			await initAudio();
+	const stopAudio = async () => {
+		// 1. 停止所有麥克風軌道
+		if (node.current.stream) {
+			node.current.stream.getTracks().forEach((track) => track.stop());
+			node.current.stream = undefined;
 		}
 
-		// confirm audio context is initialized
-		const ctx = audioCtx.current;
-		if (!ctx) return;
+		// 2. 停止音樂播放
+		if (isPlaying) {
+			musicSource.current?.stop();
+			setIsPlaying(false);
+		}
+
+		// 3. 關閉 AudioContext
+		if (audioCtx.current) {
+			await audioCtx.current.close();
+			audioCtx.current = null;
+		}
+
+		// 4. 清除節點引用
+		node.current = {};
+
+		// 5. 更新狀態
+		setIsEngineRunning(false);
+	};
+
+	const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+		const file = e.target.files?.[0];
+		if (!file || !audioCtx.current) return;
 
 		try {
 			const arrayBuffer = await file.arrayBuffer();
-			const audioBuffer = await ctx.decodeAudioData(arrayBuffer);
-
-			musicSource.current?.stop();
-
-			const source = ctx.createBufferSource();
-			source.buffer = audioBuffer;
-			source.loop = true;
-
-			// 取得現有混音節點引用
-			const { musicGain, compressor } = node.current;
-
-			if (musicGain && compressor) {
-				// 串接：Source -> MusicGain -> Compressor
-				source.connect(musicGain);
-				source.start();
-
-				musicSource.current = source;
-			}
+			const decodedData = await audioCtx.current.decodeAudioData(arrayBuffer);
+			setAudioBuffer(decodedData);
+			setPausedAt(0); // 重置播放進度
+			setIsPlaying(false);
 		} catch (error) {
 			console.error('音訊解碼失敗:', error);
 		}
 	};
 
+	const togglePlay = () => {
+		if (!audioCtx.current || !audioBuffer) return;
+
+		if (isPlaying) {
+			// 暫停：紀錄目前播放位置並停止節點
+			const elapsed = audioCtx.current.currentTime - startTime;
+			setPausedAt(elapsed);
+			musicSource.current?.stop();
+			setIsPlaying(false);
+		} else {
+			// 播放：建立新節點並從上次位置開始
+			const source = audioCtx.current.createBufferSource();
+			source.buffer = audioBuffer;
+			source.loop = true;
+			source.connect(node.current.musicGain!);
+
+			// 計算 offset (處理循環播放的情況)
+			const offset = pausedAt % audioBuffer.duration;
+			source.start(0, offset);
+
+			setStartTime(audioCtx.current.currentTime - offset);
+			musicSource.current = source;
+			setIsPlaying(true);
+		}
+	};
+
+	const handleVolumeChange = (key: keyof KTVVolume, value: number) => {
+		setVolumeState((prev) => ({ ...prev, [key]: value }));
+	};
+
 	return (
-		<main className='min-h-screen bg-slate-50 p-4 md:p-8'>
+		<main className='min-h-screen bg-slate-50 p-4 md:p-8 pb-24'>
 			<div className='max-w-md mx-auto space-y-6'>
 				{/* Header */}
-				<div className='flex justify-between items-end'>
+				<header className='flex justify-between items-end'>
 					<div>
 						<h1 className='text-2xl font-black text-slate-800 tracking-tight'>
-							KARAOKE<span className='text-amber-500'>NEXT</span>
+							MY<span className='text-amber-500'>KTV</span>
 						</h1>
-						<p className='text-[10px] font-bold text-slate-400'>
-							MOBILE WEB STUDIO
+						<p className='text-[10px] font-bold text-slate-400 uppercase'>
+							Powered By Power Bunny
 						</p>
 					</div>
 					<div
@@ -169,36 +206,171 @@ export default function KTVPage() {
 								: 'bg-slate-100 text-slate-400'
 						}`}
 					>
-						STATUS: {isEngineRunning ? 'RUNNING' : 'OFFLINE'}
+						{isEngineRunning ? '● ENGINE ACTIVE' : 'OFFLINE'}
 					</div>
-				</div>
+				</header>
 
-				{/* 核心操作區 */}
-				<div className='grid grid-cols-2 gap-4'>
+				{/* 1. 麥克風啟動區 */}
+				<section>
 					<button
-						onClick={initAudio}
-						disabled={isEngineRunning}
-						className={`h-32 rounded-3xl flex flex-col items-center justify-center gap-2 transition-all shadow-sm border ${
+						onClick={() => {
+							if (isEngineRunning) {
+								// 停止
+								stopAudio();
+							} else {
+								// 啟動
+								initAudio();
+							}
+						}}
+						className={`w-full h-24 rounded-2xl flex items-center justify-center gap-4 transition-all border-2 ${
 							isEngineRunning
-								? 'bg-white text-slate-300'
-								: 'bg-amber-500 text-white active:scale-95 shadow-amber-200'
+								? 'bg-white border-emerald-100 text-emerald-500'
+								: 'bg-amber-500 border-amber-600 text-white shadow-lg active:scale-[0.98]'
 						}`}
 					>
-						<Mic size={32} />
-						<span className='font-bold text-sm'>啟動麥克風</span>
+						<Mic size={28} className={isEngineRunning ? 'animate-pulse' : ''} />
+						<span className='font-bold'>
+							{isEngineRunning ? '麥克風已就緒' : '啟動麥克風引擎'}
+						</span>
 					</button>
+				</section>
 
-					<label className='h-32 rounded-3xl bg-white border-2 border-dashed border-slate-200 flex flex-col items-center justify-center gap-2 text-slate-500 cursor-pointer active:bg-slate-50'>
-						<Music size={32} />
-						<span className='font-bold text-sm'>選擇音樂</span>
-						<input
-							type='file'
-							className='hidden'
-							accept='audio/*'
-							onChange={handleFileUpload}
-						/>
-					</label>
-				</div>
+				{/* 2. 音樂控制區 (連動 isEngineRunning) */}
+				<section
+					className={`space-y-4 transition-opacity ${
+						!isEngineRunning ? 'opacity-40 pointer-events-none' : 'opacity-100'
+					}`}
+				>
+					<div className='bg-white p-4 rounded-2xl border border-slate-200 shadow-sm'>
+						<div className='flex items-center justify-between mb-4'>
+							<h3 className='text-sm font-bold flex items-center gap-2'>
+								<Music size={16} /> 背景音樂
+							</h3>
+							<label className='text-xs bg-slate-100 px-3 py-1.5 rounded-full cursor-pointer hover:bg-slate-200 transition-colors'>
+								{audioBuffer ? '更換檔案' : '選擇檔案'}
+								<input
+									type='file'
+									className='hidden'
+									accept='audio/*'
+									onChange={handleFileUpload}
+								/>
+							</label>
+						</div>
+
+						{audioBuffer && (
+							<div className='flex items-center gap-3'>
+								<button
+									onClick={togglePlay}
+									className='flex-1 py-3 rounded-xl bg-slate-900 text-white flex items-center justify-center gap-2 active:scale-95 transition-transform'
+								>
+									{isPlaying ? (
+										<>
+											<Pause size={18} /> 暫停
+										</>
+									) : (
+										<>
+											<Play size={18} /> 播放
+										</>
+									)}
+								</button>
+								<button
+									onClick={handleReset}
+									className={`p-3 rounded-xl border transition-all duration-200 ${
+										isResetting
+											? 'bg-amber-100 border-amber-400 text-amber-600 scale-90' // 亮起時的樣式
+											: 'bg-white border-slate-200 text-slate-400 hover:text-slate-600' // 平時樣式
+									}`}
+								>
+									<RotateCcw
+										size={18}
+										className={
+											isResetting ? 'rotate-[-180deg] transition-transform' : ''
+										}
+									/>
+								</button>
+							</div>
+						)}
+					</div>
+				</section>
+
+				{/* 3. 混音器混響區 */}
+				<section
+					className={`space-y-4 transition-opacity ${
+						!isEngineRunning ? 'opacity-40 pointer-events-none' : 'opacity-100'
+					}`}
+				>
+					<div className='bg-white p-6 rounded-3xl border border-slate-200 shadow-sm space-y-6'>
+						<div className='flex items-center gap-2 border-b pb-3 border-slate-50'>
+							<Sliders size={18} className='text-slate-400' />
+							<h3 className='text-sm font-black text-slate-700 uppercase tracking-widest'>
+								Mixer Console
+							</h3>
+						</div>
+
+						{/* 麥克風音量 */}
+						<div className='space-y-3'>
+							<div className='flex justify-between text-[11px] font-bold text-slate-500'>
+								<span>MIC VOLUME</span>
+								<span className='font-mono'>
+									{(volume.mic * 100).toFixed(0)}%
+								</span>
+							</div>
+							<input
+								type='range'
+								min='0'
+								max='1.5'
+								step='0.01'
+								value={volume.mic}
+								onChange={(e) =>
+									handleVolumeChange('mic', parseFloat(e.target.value))
+								}
+								className='w-full h-1.5 bg-slate-100 rounded-lg appearance-none accent-amber-500 cursor-pointer'
+							/>
+						</div>
+
+						{/* 音樂音量 */}
+						<div className='space-y-3'>
+							<div className='flex justify-between text-[11px] font-bold text-slate-500'>
+								<span>MUSIC VOLUME</span>
+								<span className='font-mono'>
+									{(volume.music * 100).toFixed(0)}%
+								</span>
+							</div>
+							<input
+								type='range'
+								min='0'
+								max='1'
+								step='0.01'
+								value={volume.music}
+								onChange={(e) =>
+									handleVolumeChange('music', parseFloat(e.target.value))
+								}
+								className='w-full h-1.5 bg-slate-100 rounded-lg appearance-none accent-blue-500 cursor-pointer'
+							/>
+						</div>
+
+						{/* 迴響強度 */}
+						<div className='space-y-3'>
+							<div className='flex justify-between text-[11px] font-bold text-slate-500'>
+								<span>ECHO FEEDBACK</span>
+								<span className='font-mono'>
+									{(volume.echo * 100).toFixed(0)}%
+								</span>
+							</div>
+							<input
+								type='range'
+								min='0'
+								max='0.6'
+								step='0.01'
+								value={volume.echo}
+								onChange={(e) =>
+									handleVolumeChange('echo', parseFloat(e.target.value))
+								}
+								className='w-full h-1.5 bg-slate-100 rounded-lg appearance-none accent-emerald-500 cursor-pointer'
+							/>
+						</div>
+					</div>
+				</section>
 			</div>
 		</main>
 	);

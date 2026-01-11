@@ -1,4 +1,5 @@
 export interface KTVNode {
+	stream?: MediaStream;
 	micSource?: MediaStreamAudioSourceNode;
 	micGain?: GainNode;
 	musicGain?: GainNode;
