@@ -2,7 +2,7 @@
 
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { Mic, Music, Play, Pause, RotateCcw, Sliders } from 'lucide-react';
-import { KTVNode, KTVVolume } from '../types/types';
+import { KTVVolume, MyAudioGraph } from '../types/types';
 
 export default function KTVPage() {
 	const [isEngineRunning, setIsEngineRunning] = useState(false);
@@ -23,29 +23,37 @@ export default function KTVPage() {
 	const [isResetting, setIsResetting] = useState(false);
 
 	const audioCtx = useRef<AudioContext | null>(null);
-	const node = useRef<KTVNode>({});
-	const musicSource = useRef<AudioBufferSourceNode | null>(null);
+	const nodes = useRef<MyAudioGraph>(new MyAudioGraph());
 
 	const applyVolumeSettings = useCallback(
 		(rampTime = 0.05) => {
 			const ctx = audioCtx.current;
-			const n = node.current;
+			const n = nodes.current;
 			if (!ctx) return;
 
 			const { mic, music, echo, delay, ratio, ducking } = volume;
 			const now = ctx.currentTime;
 
-			n.micGain?.gain.setTargetAtTime(mic, now, rampTime);
-			n.musicGain?.gain.setTargetAtTime(music, now, rampTime);
-			n.echoFeedback?.gain.setTargetAtTime(echo, now, rampTime);
-			n.echoDelay?.delayTime.setTargetAtTime(delay, now, rampTime);
-
-			if (n.compressor) {
-				n.compressor.ratio.setTargetAtTime(ratio, now, rampTime);
-				n.compressor.threshold.setTargetAtTime(ducking, now, rampTime);
-			}
+			n?.getGainNode('micGain').gain.setTargetAtTime(mic, now, rampTime);
+			n?.getGainNode('musicGain').gain.setTargetAtTime(music, now, rampTime);
+			n?.getGainNode('echoFeedback').gain.setTargetAtTime(echo, now, rampTime);
+			n?.getDelayNode('echoDelay').delayTime.setTargetAtTime(
+				delay,
+				now,
+				rampTime
+			);
+			n?.getDynamicsCompressorNode('compressor').ratio.setTargetAtTime(
+				ratio,
+				now,
+				rampTime
+			);
+			n?.getDynamicsCompressorNode('compressor').threshold.setTargetAtTime(
+				ducking,
+				now,
+				rampTime
+			);
 		},
-		[volume, audioCtx, node]
+		[volume, audioCtx, nodes]
 	);
 
 	useEffect(() => {
@@ -55,15 +63,10 @@ export default function KTVPage() {
 	}, [volume, isEngineRunning, applyVolumeSettings]);
 
 	const handleReset = () => {
-		// 1. 執行原有的邏輯
-		musicSource.current?.stop();
+		nodes.current.getAudioBufferSourceNode('musicSource').stop();
 		setPausedAt(0);
 		setIsPlaying(false);
-
-		// 2. 觸發亮燈效果
 		setIsResetting(true);
-
-		// 3. 短暫延遲後關閉亮燈（給使用者視覺反饋的時間）
 		setTimeout(() => setIsResetting(false), 200);
 	};
 
@@ -84,6 +87,7 @@ export default function KTVPage() {
 					channelCount: 1,
 				},
 			});
+			nodes.current.insertStream('mic', stream);
 
 			/**
 			 * Audio Graph:
@@ -94,46 +98,68 @@ export default function KTVPage() {
 			 */
 
 			// node
-			node.current.micSource = ctx.createMediaStreamSource(stream);
+			nodes.current.insertNode(
+				'micSource',
+				ctx.createMediaStreamSource(stream)
+			);
+			nodes.current.insertNode('audioDestNode', ctx.destination);
 
-			node.current.micGain = ctx.createGain();
-			node.current.musicGain = ctx.createGain();
-			node.current.echoFeedback = ctx.createGain();
-
-			node.current.echoDelay = ctx.createDelay();
-			node.current.compressor = ctx.createDynamicsCompressor();
-			node.current.analyser = ctx.createAnalyser();
+			for (const name of ['micGain', 'musicGain', 'echoFeedback']) {
+				nodes.current.insertNode(name, ctx.createGain());
+			}
+			for (const name of ['echoDelay']) {
+				nodes.current.insertNode(name, ctx.createDelay());
+			}
+			for (const name of ['compressor']) {
+				nodes.current.insertNode(name, ctx.createDynamicsCompressor());
+			}
+			for (const name of ['analyser']) {
+				nodes.current.insertNode(name, ctx.createAnalyser());
+			}
+			for (const name of ['lowCutFilter', 'presenceFilter', 'echoFilter']) {
+				nodes.current.insertNode(name, ctx.createBiquadFilter());
+			}
 
 			// filter
-			node.current.lowCutFilter = ctx.createBiquadFilter(); // 高通濾波(去雜音)
-			node.current.lowCutFilter.type = 'highpass';
-			node.current.lowCutFilter.frequency.value = 150;
-			node.current.presenceFilter = ctx.createBiquadFilter(); // 人聲強化
-			node.current.presenceFilter.type = 'peaking';
-			node.current.presenceFilter.frequency.value = 3500;
-			node.current.presenceFilter.Q.value = 1.2;
-			node.current.presenceFilter.gain.value = 4;
-			node.current.echoFilter = ctx.createBiquadFilter(); // 低通濾波器(去尖嘯)
-			node.current.echoFilter.type = 'lowpass';
-			node.current.echoFilter.frequency.value = 3000;
+			console.log(nodes.current);
+			nodes.current.getBiquadFilterNode('lowCutFilter').type = 'highpass';
+			nodes.current.getBiquadFilterNode('lowCutFilter').frequency.value = 150;
+
+			nodes.current.getBiquadFilterNode('presenceFilter').type = 'peaking';
+			nodes.current.getBiquadFilterNode(
+				'presenceFilter'
+			).frequency.value = 3500;
+			nodes.current.getBiquadFilterNode('presenceFilter').Q.value = 1.2;
+			nodes.current.getBiquadFilterNode('presenceFilter').gain.value = 4;
+
+			nodes.current.getBiquadFilterNode('echoFilter').type = 'lowpass';
+			nodes.current.getBiquadFilterNode('echoFilter').frequency.value = 3000;
 
 			// connection
-			node.current.micSource.connect(node.current.lowCutFilter);
-			node.current.lowCutFilter.connect(node.current.presenceFilter);
-			node.current.presenceFilter.connect(node.current.micGain);
-			node.current.micGain.connect(node.current.compressor);
+			nodes.current.connectionList([
+				'micSource',
+				'lowCutFilter',
+				'presenceFilter',
+				'micGain',
+				'compressor',
+			]);
 
-			node.current.micGain.connect(node.current.echoDelay);
-			node.current.echoDelay.connect(node.current.echoFeedback);
-			node.current.echoFeedback.connect(node.current.echoFilter);
-			node.current.echoFilter.connect(node.current.echoDelay);
-			node.current.echoFeedback.connect(node.current.compressor);
+			nodes.current.connectionList([
+				'micGain',
+				'echoDelay',
+				'echoFeedback',
+				'echoFilter',
+				'echoDelay',
+			]);
 
-			node.current.musicGain.connect(node.current.compressor);
+			nodes.current.connection('echoFeedback', 'compressor');
 
-			node.current.compressor.connect(ctx.destination);
+			nodes.current.connectionList([
+				'musicGain',
+				'compressor',
+				'audioDestNode',
+			]);
 
-			node.current.stream = stream;
 			applyVolumeSettings();
 			setIsEngineRunning(true);
 		} catch (err) {
@@ -143,28 +169,15 @@ export default function KTVPage() {
 	};
 
 	const stopAudio = async () => {
-		// 1. 停止所有麥克風軌道
-		if (node.current.stream) {
-			node.current.stream.getTracks().forEach((track) => track.stop());
-			node.current.stream = undefined;
-		}
+		nodes.current.stopAll();
+		setIsPlaying(false);
 
-		// 2. 停止音樂播放
-		if (isPlaying) {
-			musicSource.current?.stop();
-			setIsPlaying(false);
-		}
-
-		// 3. 關閉 AudioContext
 		if (audioCtx.current) {
 			await audioCtx.current.close();
 			audioCtx.current = null;
 		}
 
-		// 4. 清除節點引用
-		node.current = {};
-
-		// 5. 更新狀態
+		nodes.current = new MyAudioGraph();
 		setIsEngineRunning(false);
 	};
 
@@ -190,21 +203,21 @@ export default function KTVPage() {
 			// 暫停：紀錄目前播放位置並停止節點
 			const elapsed = audioCtx.current.currentTime - startTime;
 			setPausedAt(elapsed);
-			musicSource.current?.stop();
+			nodes.current.getAudioBufferSourceNode('musicSource').stop();
 			setIsPlaying(false);
 		} else {
 			// 播放：建立新節點並從上次位置開始
 			const source = audioCtx.current.createBufferSource();
 			source.buffer = audioBuffer;
 			source.loop = true;
-			source.connect(node.current.musicGain!);
+			source.connect(nodes.current.getGainNode('musicGain'));
+			nodes.current.insertNode('musicSource', source);
 
 			// 計算 offset (處理循環播放的情況)
 			const offset = pausedAt % audioBuffer.duration;
 			source.start(0, offset);
 
 			setStartTime(audioCtx.current.currentTime - offset);
-			musicSource.current = source;
 			setIsPlaying(true);
 		}
 	};
