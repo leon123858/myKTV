@@ -12,6 +12,10 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
+    # 設定預設執行目錄為子目錄
+    defaults:
+      run:
+        working-directory: ./web-ktv
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -20,22 +24,21 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: "22"
-          # 1. 將快取更改為 yarn
           cache: "yarn"
+          # 讓 cache 讀取子目錄下的 yarn.lock
+          cache-dependency-path: ./web-ktv/yarn.lock
 
       - name: Install dependencies
-        # 2. 使用 yarn install
-        # --frozen-lockfile 確保 CI 環境安裝的套件版本與 yarn.lock 完全一致
         run: yarn install --frozen-lockfile
 
       - name: Build with Next.js
-        # 3. 使用 yarn build
         run: yarn build
 
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          path: ./out
+          # 指向子目錄下的 out 資料夾
+          path: ./web-ktv/out
 
   deploy:
     environment:
