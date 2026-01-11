@@ -1,8 +1,10 @@
 'use client';
 
 import { useState, useRef, useEffect, useCallback } from 'react';
-import { Mic, Music, Play, Pause, RotateCcw, Sliders } from 'lucide-react';
+import { Mic, Music, Play, Pause, RotateCcw } from 'lucide-react';
 import { KTVVolume, MyAudioGraph } from '../types/types';
+import ControlSlider from '../components/controlSide';
+import { generateFakeIRBuffer } from '../libs/ir';
 
 export default function KTVPage() {
 	const [isEngineRunning, setIsEngineRunning] = useState(false);
@@ -11,9 +13,13 @@ export default function KTVPage() {
 		mic: 0.8,
 		music: 0.6,
 		echo: 0.3,
+		reverb: 0.4,
 		delay: 0.2,
-		ratio: 12,
-		ducking: -35,
+		threshold: -40,
+		ratio: 14,
+		knee: 30,
+		attack: 0.003,
+		release: 0.25,
 	});
 
 	// 音樂播放相關狀態
@@ -29,31 +35,33 @@ export default function KTVPage() {
 		(rampTime = 0.05) => {
 			const ctx = audioCtx.current;
 			const n = nodes.current;
-			if (!ctx) return;
+			if (!ctx || !n) return;
 
-			const { mic, music, echo, delay, ratio, ducking } = volume;
+			const v = volume;
 			const now = ctx.currentTime;
 
-			n?.getGainNode('micGain').gain.setTargetAtTime(mic, now, rampTime);
-			n?.getGainNode('musicGain').gain.setTargetAtTime(music, now, rampTime);
-			n?.getGainNode('echoFeedback').gain.setTargetAtTime(echo, now, rampTime);
-			n?.getDelayNode('echoDelay').delayTime.setTargetAtTime(
-				delay,
+			// 1. Gain 類節點
+			n.getGainNode('micGain').gain.setTargetAtTime(v.mic, now, rampTime);
+			n.getGainNode('musicGain').gain.setTargetAtTime(v.music, now, rampTime);
+			n.getGainNode('echoFeedback').gain.setTargetAtTime(v.echo, now, rampTime);
+			n.getGainNode('reverbGain').gain.setTargetAtTime(v.reverb, now, rampTime);
+
+			// 2. 時間與濾波
+			n.getDelayNode('echoDelay').delayTime.setTargetAtTime(
+				v.delay,
 				now,
 				rampTime
 			);
-			n?.getDynamicsCompressorNode('compressor').ratio.setTargetAtTime(
-				ratio,
-				now,
-				rampTime
-			);
-			n?.getDynamicsCompressorNode('compressor').threshold.setTargetAtTime(
-				ducking,
-				now,
-				rampTime
-			);
+
+			// 3. Compressor 深度調試
+			const comp = n.getDynamicsCompressorNode('compressor');
+			comp.threshold.setTargetAtTime(v.threshold, now, rampTime);
+			comp.ratio.setTargetAtTime(v.ratio, now, rampTime);
+			comp.knee.setTargetAtTime(v.knee, now, rampTime);
+			comp.attack.setTargetAtTime(v.attack, now, rampTime);
+			comp.release.setTargetAtTime(v.release, now, rampTime);
 		},
-		[volume, audioCtx, nodes]
+		[volume]
 	);
 
 	useEffect(() => {
@@ -90,11 +98,17 @@ export default function KTVPage() {
 			nodes.current.insertStream('mic', stream);
 
 			/**
-			 * Audio Graph:
-			 * 												     |<----filter----|
-			 * mic-Filters-micGain---|---delay---echoFeedbackGain--|
-			 * 				 					 		 |-----------------------------|--Compressor--dest
-			 * player--musicGain-----|
+			 * Pro KTV Audio Graph:
+			 * *
+			 * 																		  |<--------Filters<---|
+			 * 																		  |                    |
+			 * mic -> Filters -> micGain ---┬--- [delay] --- [echoFeedbackGain] ---┬---> [Compressor] -> dest
+			 * 															|                            					 |                            					 ^
+			 * 															|-- [Convolver]-[reverbGain]-----------|                            					 |
+			 * 															|                            					 |                                      |
+			 * 															└-----[Dry Path] ----------------------┘                                      |
+			 *                                                                     |
+			 * player -> musicGain ------------------------------------------------┘
 			 */
 
 			// node
@@ -104,7 +118,12 @@ export default function KTVPage() {
 			);
 			nodes.current.insertNode('audioDestNode', ctx.destination);
 
-			for (const name of ['micGain', 'musicGain', 'echoFeedback']) {
+			for (const name of [
+				'micGain',
+				'musicGain',
+				'echoFeedback',
+				'reverbGain',
+			]) {
 				nodes.current.insertNode(name, ctx.createGain());
 			}
 			for (const name of ['echoDelay']) {
@@ -119,21 +138,28 @@ export default function KTVPage() {
 			for (const name of ['lowCutFilter', 'presenceFilter', 'echoFilter']) {
 				nodes.current.insertNode(name, ctx.createBiquadFilter());
 			}
+			for (const name of ['convolver']) {
+				nodes.current.insertNode(name, ctx.createConvolver());
+			}
 
-			// filter
-			console.log(nodes.current);
+			// static setting
 			nodes.current.getBiquadFilterNode('lowCutFilter').type = 'highpass';
 			nodes.current.getBiquadFilterNode('lowCutFilter').frequency.value = 150;
-
 			nodes.current.getBiquadFilterNode('presenceFilter').type = 'peaking';
 			nodes.current.getBiquadFilterNode(
 				'presenceFilter'
 			).frequency.value = 3500;
 			nodes.current.getBiquadFilterNode('presenceFilter').Q.value = 1.2;
 			nodes.current.getBiquadFilterNode('presenceFilter').gain.value = 4;
-
 			nodes.current.getBiquadFilterNode('echoFilter').type = 'lowpass';
 			nodes.current.getBiquadFilterNode('echoFilter').frequency.value = 3000;
+			nodes.current.getConvolverNode('convolver').buffer = generateFakeIRBuffer(
+				ctx,
+				0.5
+			);
+
+			// dynamic setting
+			applyVolumeSettings();
 
 			// connection
 			nodes.current.connectionList([
@@ -143,7 +169,6 @@ export default function KTVPage() {
 				'micGain',
 				'compressor',
 			]);
-
 			nodes.current.connectionList([
 				'micGain',
 				'echoDelay',
@@ -151,16 +176,16 @@ export default function KTVPage() {
 				'echoFilter',
 				'echoDelay',
 			]);
-
 			nodes.current.connection('echoFeedback', 'compressor');
-
 			nodes.current.connectionList([
-				'musicGain',
+				'micGain',
+				'convolver',
+				'reverbGain',
 				'compressor',
-				'audioDestNode',
 			]);
+			nodes.current.connection('musicGain', 'compressor');
+			nodes.current.connection('compressor', 'audioDestNode');
 
-			applyVolumeSettings();
 			setIsEngineRunning(true);
 		} catch (err) {
 			console.error('Audio failed:', err);
@@ -335,78 +360,116 @@ export default function KTVPage() {
 
 				{/* 3. 混音器混響區 */}
 				<section
-					className={`space-y-4 transition-opacity ${
-						!isEngineRunning ? 'opacity-40 pointer-events-none' : 'opacity-100'
+					className={`space-y-4 pb-20 transition-opacity ${
+						!isEngineRunning ? 'opacity-40 pointer-events-none' : ''
 					}`}
 				>
+					{/* 音量設定 (Gain) */}
 					<div className='bg-white p-6 rounded-3xl border border-slate-200 shadow-sm space-y-6'>
-						<div className='flex items-center gap-2 border-b pb-3 border-slate-50'>
-							<Sliders size={18} className='text-slate-400' />
-							<h3 className='text-sm font-black text-slate-700 uppercase tracking-widest'>
-								Mixer Console
-							</h3>
-						</div>
+						<h3 className='text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] mb-2'>
+							Spatial Effects
+						</h3>
 
-						{/* 麥克風音量 */}
-						<div className='space-y-3'>
-							<div className='flex justify-between text-[11px] font-bold text-slate-500'>
-								<span>MIC VOLUME</span>
-								<span className='font-mono'>
-									{(volume.mic * 100).toFixed(0)}%
-								</span>
-							</div>
-							<input
-								type='range'
-								min='0'
-								max='1.5'
-								step='0.01'
-								value={volume.mic}
-								onChange={(e) =>
-									handleVolumeChange('mic', parseFloat(e.target.value))
-								}
-								className='w-full h-1.5 bg-slate-100 rounded-lg appearance-none accent-amber-500 cursor-pointer'
+						<ControlSlider
+							label='mic 音量'
+							value={volume.mic}
+							min={0}
+							max={1}
+							step={0.01}
+							onChange={(v) => handleVolumeChange('mic', v)}
+							color='accent-indigo-500'
+						/>
+
+						<ControlSlider
+							label='music 音量'
+							value={volume.music}
+							min={0}
+							max={0.8}
+							step={0.01}
+							onChange={(v) => handleVolumeChange('music', v)}
+							color='accent-emerald-500'
+						/>
+					</div>
+
+					{/* 空間效果 (Echo & Reverb) */}
+					<div className='bg-white p-6 rounded-3xl border border-slate-200 shadow-sm space-y-6'>
+						<h3 className='text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] mb-2'>
+							Spatial Effects
+						</h3>
+
+						<ControlSlider
+							label='Reverb Intensity'
+							value={volume.reverb}
+							min={0}
+							max={1}
+							step={0.01}
+							onChange={(v) => handleVolumeChange('reverb', v)}
+							color='accent-indigo-500'
+						/>
+
+						<ControlSlider
+							label='Echo Feedback'
+							value={volume.echo}
+							min={0}
+							max={0.8}
+							step={0.01}
+							onChange={(v) => handleVolumeChange('echo', v)}
+							color='accent-emerald-500'
+						/>
+
+						<ControlSlider
+							label='Echo Delay (s)'
+							value={volume.delay}
+							min={0.05}
+							max={1}
+							step={0.01}
+							onChange={(v) => handleVolumeChange('delay', v)}
+							color='accent-emerald-500'
+						/>
+					</div>
+
+					{/* 動態處理器 (Compressor) */}
+					<div className='bg-slate-900 p-6 rounded-3xl shadow-xl space-y-6 text-white'>
+						<h3 className='text-[10px] font-black text-slate-500 uppercase tracking-[0.2em] mb-2'>
+							Master Dynamics (Compressor)
+						</h3>
+
+						<div className='grid grid-cols-2 gap-4'>
+							<ControlSlider
+								label='Threshold'
+								value={volume.threshold}
+								min={-60}
+								max={0}
+								step={1}
+								onChange={(v) => handleVolumeChange('threshold', v)}
+								unit='dB'
 							/>
-						</div>
-
-						{/* 音樂音量 */}
-						<div className='space-y-3'>
-							<div className='flex justify-between text-[11px] font-bold text-slate-500'>
-								<span>MUSIC VOLUME</span>
-								<span className='font-mono'>
-									{(volume.music * 100).toFixed(0)}%
-								</span>
-							</div>
-							<input
-								type='range'
-								min='0'
-								max='1'
-								step='0.01'
-								value={volume.music}
-								onChange={(e) =>
-									handleVolumeChange('music', parseFloat(e.target.value))
-								}
-								className='w-full h-1.5 bg-slate-100 rounded-lg appearance-none accent-blue-500 cursor-pointer'
+							<ControlSlider
+								label='Ratio'
+								value={volume.ratio}
+								min={1}
+								max={20}
+								step={0.1}
+								onChange={(v) => handleVolumeChange('ratio', v)}
+								unit=':1'
 							/>
-						</div>
-
-						{/* 迴響強度 */}
-						<div className='space-y-3'>
-							<div className='flex justify-between text-[11px] font-bold text-slate-500'>
-								<span>ECHO FEEDBACK</span>
-								<span className='font-mono'>
-									{(volume.echo * 100).toFixed(0)}%
-								</span>
-							</div>
-							<input
-								type='range'
-								min='0'
-								max='0.6'
-								step='0.01'
-								value={volume.echo}
-								onChange={(e) =>
-									handleVolumeChange('echo', parseFloat(e.target.value))
-								}
-								className='w-full h-1.5 bg-slate-100 rounded-lg appearance-none accent-emerald-500 cursor-pointer'
+							<ControlSlider
+								label='Attack'
+								value={volume.attack}
+								min={0}
+								max={0.1}
+								step={0.001}
+								onChange={(v) => handleVolumeChange('attack', v)}
+								unit='s'
+							/>
+							<ControlSlider
+								label='Release'
+								value={volume.release}
+								min={0.01}
+								max={1}
+								step={0.01}
+								onChange={(v) => handleVolumeChange('release', v)}
+								unit='s'
 							/>
 						</div>
 					</div>

@@ -41,6 +41,9 @@ export class MyAudioGraph {
 	getAudioBufferSourceNode(name: string) {
 		return this.nodes[name] as AudioBufferSourceNode;
 	}
+	getConvolverNode(name: string) {
+		return this.nodes[name] as ConvolverNode;
+	}
 
 	connection(name1: string, name2: string) {
 		if (this.nodes[name1] && this.nodes[name2]) {
@@ -69,10 +72,19 @@ export class MyAudioGraph {
 }
 
 export interface KTVVolume {
+	// Gain 相關
 	mic: number;
 	music: number;
-	echo: number; // 迴響強度 (Feedback)
-	delay: number; // 迴響延遲時間 (秒)
-	ratio: number; // 壓縮比例
-	ducking: number; // 門檻值 (Threshold)
+	echo: number; // Feedback Gain
+	reverb: number; // Reverb Send Gain
+
+	// 時間相關
+	delay: number; // Echo Delay Time
+
+	// Compressor 核心參數
+	threshold: number;
+	ratio: number;
+	knee: number;
+	attack: number;
+	release: number;
 }
