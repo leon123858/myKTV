@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 import { Mic, Music, Play, Pause, RotateCcw, Sliders } from 'lucide-react';
 import { KTVNode, KTVVolume } from '../types/types';
 
@@ -26,8 +26,8 @@ export default function KTVPage() {
 	const node = useRef<KTVNode>({});
 	const musicSource = useRef<AudioBufferSourceNode | null>(null);
 
-	useEffect(() => {
-		const applyVolumeSettings = (rampTime = 0.05) => {
+	const applyVolumeSettings = useCallback(
+		(rampTime = 0.05) => {
 			const ctx = audioCtx.current;
 			const n = node.current;
 			if (!ctx) return;
@@ -44,12 +44,15 @@ export default function KTVPage() {
 				n.compressor.ratio.setTargetAtTime(ratio, now, rampTime);
 				n.compressor.threshold.setTargetAtTime(ducking, now, rampTime);
 			}
-		};
+		},
+		[volume, audioCtx, node]
+	);
 
+	useEffect(() => {
 		if (isEngineRunning) {
 			applyVolumeSettings();
 		}
-	}, [volume, isEngineRunning]);
+	}, [volume, isEngineRunning, applyVolumeSettings]);
 
 	const handleReset = () => {
 		// 1. 執行原有的邏輯
@@ -82,32 +85,56 @@ export default function KTVPage() {
 				},
 			});
 
-			// 建立節點
+			/**
+			 * Audio Graph:
+			 * 												     |<----filter----|
+			 * mic-Filters-micGain---|---delay---echoFeedbackGain--|
+			 * 				 					 		 |-----------------------------|--Compressor--dest
+			 * player--musicGain-----|
+			 */
+
+			// node
 			node.current.micSource = ctx.createMediaStreamSource(stream);
+
 			node.current.micGain = ctx.createGain();
 			node.current.musicGain = ctx.createGain();
-			node.current.echoDelay = ctx.createDelay();
 			node.current.echoFeedback = ctx.createGain();
+
+			node.current.echoDelay = ctx.createDelay();
 			node.current.compressor = ctx.createDynamicsCompressor();
 			node.current.analyser = ctx.createAnalyser();
 
-			// 連接人聲路徑
-			node.current.micSource.connect(node.current.micGain);
+			// filter
+			node.current.lowCutFilter = ctx.createBiquadFilter(); // 高通濾波(去雜音)
+			node.current.lowCutFilter.type = 'highpass';
+			node.current.lowCutFilter.frequency.value = 150;
+			node.current.presenceFilter = ctx.createBiquadFilter(); // 人聲強化
+			node.current.presenceFilter.type = 'peaking';
+			node.current.presenceFilter.frequency.value = 3500;
+			node.current.presenceFilter.Q.value = 1.2;
+			node.current.presenceFilter.gain.value = 4;
+			node.current.echoFilter = ctx.createBiquadFilter(); // 低通濾波器(去尖嘯)
+			node.current.echoFilter.type = 'lowpass';
+			node.current.echoFilter.frequency.value = 3000;
+
+			// connection
+			node.current.micSource.connect(node.current.lowCutFilter);
+			node.current.lowCutFilter.connect(node.current.presenceFilter);
+			node.current.presenceFilter.connect(node.current.micGain);
 			node.current.micGain.connect(node.current.compressor);
 
-			// 連接迴響路徑
 			node.current.micGain.connect(node.current.echoDelay);
 			node.current.echoDelay.connect(node.current.echoFeedback);
-			node.current.echoFeedback.connect(node.current.echoDelay);
+			node.current.echoFeedback.connect(node.current.echoFilter);
+			node.current.echoFilter.connect(node.current.echoDelay);
 			node.current.echoFeedback.connect(node.current.compressor);
 
-			// 連接音樂路徑 (音樂也進入 compressor 才能實現 Ducking)
 			node.current.musicGain.connect(node.current.compressor);
 
-			// 最終輸出
 			node.current.compressor.connect(ctx.destination);
 
 			node.current.stream = stream;
+			applyVolumeSettings();
 			setIsEngineRunning(true);
 		} catch (err) {
 			console.error('Audio failed:', err);

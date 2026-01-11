@@ -5,6 +5,9 @@ export interface KTVNode {
 	musicGain?: GainNode;
 	echoDelay?: DelayNode;
 	echoFeedback?: GainNode;
+	lowCutFilter?: BiquadFilterNode;
+	presenceFilter?: BiquadFilterNode;
+	echoFilter?: BiquadFilterNode;
 	compressor?: DynamicsCompressorNode;
 	analyser?: AnalyserNode;
 }
