@@ -1,5 +1,3 @@
-import { KTVVolume } from '../types/types';
-
 export default function ControlSlider({
 	label,
 	value,

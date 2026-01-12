@@ -4,10 +4,17 @@ import { useState, useRef, useEffect, useCallback } from 'react';
 import { Mic, Music, Play, Pause, RotateCcw } from 'lucide-react';
 import { KTVVolume, MyAudioGraph } from '../types/types';
 import ControlSlider from '../components/controlSide';
-import { generateFakeIRBuffer } from '../libs/ir';
+import Visualizer from '../components/Visualizer';
+import {
+	generateAudioGraph,
+	getAudioContext,
+	getAudioMedia,
+	setGraphVolumes,
+} from '../libs/graph';
 
 export default function KTVPage() {
 	const [isEngineRunning, setIsEngineRunning] = useState(false);
+	const [showDebug, setShowDebug] = useState(false);
 	const [isPlaying, setIsPlaying] = useState(false);
 	const [volume, setVolumeState] = useState<KTVVolume>({
 		mic: 0.8,
@@ -28,6 +35,12 @@ export default function KTVPage() {
 	const [pausedAt, setPausedAt] = useState(0); // 紀錄暫停時已播放了幾秒
 	const [isResetting, setIsResetting] = useState(false);
 
+	// debug
+	const [micAnalyser, setMicAnalyser] = useState<AnalyserNode | null>(null);
+	const [outputAnalyser, setOutputAnalyser] = useState<AnalyserNode | null>(
+		null
+	);
+
 	const audioCtx = useRef<AudioContext | null>(null);
 	const nodes = useRef<MyAudioGraph>(new MyAudioGraph());
 
@@ -36,30 +49,7 @@ export default function KTVPage() {
 			const ctx = audioCtx.current;
 			const n = nodes.current;
 			if (!ctx || !n) return;
-
-			const v = volume;
-			const now = ctx.currentTime;
-
-			// 1. Gain 類節點
-			n.getGainNode('micGain').gain.setTargetAtTime(v.mic, now, rampTime);
-			n.getGainNode('musicGain').gain.setTargetAtTime(v.music, now, rampTime);
-			n.getGainNode('echoFeedback').gain.setTargetAtTime(v.echo, now, rampTime);
-			n.getGainNode('reverbGain').gain.setTargetAtTime(v.reverb, now, rampTime);
-
-			// 2. 時間與濾波
-			n.getDelayNode('echoDelay').delayTime.setTargetAtTime(
-				v.delay,
-				now,
-				rampTime
-			);
-
-			// 3. Compressor 深度調試
-			const comp = n.getDynamicsCompressorNode('compressor');
-			comp.threshold.setTargetAtTime(v.threshold, now, rampTime);
-			comp.ratio.setTargetAtTime(v.ratio, now, rampTime);
-			comp.knee.setTargetAtTime(v.knee, now, rampTime);
-			comp.attack.setTargetAtTime(v.attack, now, rampTime);
-			comp.release.setTargetAtTime(v.release, now, rampTime);
+			setGraphVolumes(nodes.current, volume, ctx, rampTime);
 		},
 		[volume]
 	);
@@ -82,110 +72,25 @@ export default function KTVPage() {
 		if (audioCtx.current) return;
 
 		try {
-			const Context = window.AudioContext;
-			audioCtx.current = new Context();
-			const ctx = audioCtx.current;
+			const stream = await getAudioMedia();
 
-			const stream = await navigator.mediaDevices.getUserMedia({
-				audio: {
-					sampleRate: { ideal: 48000 },
-					echoCancellation: true,
-					autoGainControl: false,
-					noiseSuppression: { ideal: true },
-					channelCount: 1,
-				},
-			});
+			audioCtx.current = getAudioContext();
+
 			nodes.current.insertStream('mic', stream);
-
-			/**
-			 * Pro KTV Audio Graph:
-			 * *
-			 * 																		  |<--------Filters<---|
-			 * 																		  |                    |
-			 * mic -> Filters -> micGain ---┬--- [delay] --- [echoFeedbackGain] ---┬---> [Compressor] -> dest
-			 * 															|                            					 |                            					 ^
-			 * 															|-- [Convolver]-[reverbGain]-----------|                            					 |
-			 * 															|                            					 |                                      |
-			 * 															└-----[Dry Path] ----------------------┘                                      |
-			 *                                                                     |
-			 * player -> musicGain ------------------------------------------------┘
-			 */
-
-			// node
 			nodes.current.insertNode(
 				'micSource',
-				ctx.createMediaStreamSource(stream)
+				audioCtx.current.createMediaStreamSource(stream)
 			);
-			nodes.current.insertNode('audioDestNode', ctx.destination);
+			nodes.current = await generateAudioGraph(nodes.current, audioCtx.current);
 
-			for (const name of [
-				'micGain',
-				'musicGain',
-				'echoFeedback',
-				'reverbGain',
-			]) {
-				nodes.current.insertNode(name, ctx.createGain());
-			}
-			for (const name of ['echoDelay']) {
-				nodes.current.insertNode(name, ctx.createDelay());
-			}
-			for (const name of ['compressor']) {
-				nodes.current.insertNode(name, ctx.createDynamicsCompressor());
-			}
-			for (const name of ['analyser']) {
-				nodes.current.insertNode(name, ctx.createAnalyser());
-			}
-			for (const name of ['lowCutFilter', 'presenceFilter', 'echoFilter']) {
-				nodes.current.insertNode(name, ctx.createBiquadFilter());
-			}
-			for (const name of ['convolver']) {
-				nodes.current.insertNode(name, ctx.createConvolver());
-			}
-
-			// static setting
-			nodes.current.getBiquadFilterNode('lowCutFilter').type = 'highpass';
-			nodes.current.getBiquadFilterNode('lowCutFilter').frequency.value = 150;
-			nodes.current.getBiquadFilterNode('presenceFilter').type = 'peaking';
-			nodes.current.getBiquadFilterNode(
-				'presenceFilter'
-			).frequency.value = 3500;
-			nodes.current.getBiquadFilterNode('presenceFilter').Q.value = 1.2;
-			nodes.current.getBiquadFilterNode('presenceFilter').gain.value = 4;
-			nodes.current.getBiquadFilterNode('echoFilter').type = 'lowpass';
-			nodes.current.getBiquadFilterNode('echoFilter').frequency.value = 3000;
-			nodes.current.getConvolverNode('convolver').buffer = generateFakeIRBuffer(
-				ctx,
-				0.5
-			);
+			// debug
+			setMicAnalyser(nodes.current.getAnalyserNode('micAnalyser'));
+			setOutputAnalyser(nodes.current.getAnalyserNode('outputAnalyser'));
 
 			// dynamic setting
 			applyVolumeSettings();
 
-			// connection
-			nodes.current.connectionList([
-				'micSource',
-				'lowCutFilter',
-				'presenceFilter',
-				'micGain',
-				'compressor',
-			]);
-			nodes.current.connectionList([
-				'micGain',
-				'echoDelay',
-				'echoFeedback',
-				'echoFilter',
-				'echoDelay',
-			]);
-			nodes.current.connection('echoFeedback', 'compressor');
-			nodes.current.connectionList([
-				'micGain',
-				'convolver',
-				'reverbGain',
-				'compressor',
-			]);
-			nodes.current.connection('musicGain', 'compressor');
-			nodes.current.connection('compressor', 'audioDestNode');
-
+			// start UI
 			setIsEngineRunning(true);
 		} catch (err) {
 			console.error('Audio failed:', err);
@@ -263,6 +168,13 @@ export default function KTVPage() {
 						<p className='text-[10px] font-bold text-slate-400 uppercase'>
 							Powered By Power Bunny
 						</p>
+						{/* debug */}
+						<button
+							onClick={() => setShowDebug(!showDebug)}
+							className='text-[10px] text-slate-400 hover:text-slate-600 underline'
+						>
+							{showDebug ? '關閉除錯' : '開啟除錯模式'}
+						</button>
 					</div>
 					<div
 						className={`px-2 py-1 rounded-md text-[10px] font-mono border ${
@@ -274,7 +186,21 @@ export default function KTVPage() {
 						{isEngineRunning ? '● ENGINE ACTIVE' : 'OFFLINE'}
 					</div>
 				</header>
-
+				{/* debug */}
+				{showDebug && isEngineRunning && (
+					<section className='grid grid-cols-1 gap-3 animate-in fade-in slide-in-from-top-2'>
+						<Visualizer
+							analyser={micAnalyser}
+							label='MIC INPUT (PRE-GAIN)'
+							color='#6366f1'
+						/>
+						<Visualizer
+							analyser={outputAnalyser}
+							label='MASTER OUTPUT (POST-COMP)'
+							color='#10b981'
+						/>
+					</section>
+				)}
 				{/* 1. 麥克風啟動區 */}
 				<section>
 					<button
