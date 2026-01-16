@@ -1,5 +1,9 @@
 import { KTVVolume, MyAudioGraph } from '../types/types';
-import { generateIRFromAudioFile, getFileFromStaticPath } from './ir';
+import {
+	generateIRFromAudioFile,
+	getFileFromStaticPath,
+	IRFilePath,
+} from './ir';
 
 /**
  * Pro KTV Audio Graph:
@@ -54,7 +58,7 @@ export async function generateAudioGraph(
 	nodes.getBiquadFilterNode('echoFilter').frequency.value = 3000;
 	nodes.getConvolverNode('convolver').buffer = await generateIRFromAudioFile(
 		ctx,
-		await getFileFromStaticPath('/plate01.wav')
+		await getFileFromStaticPath(IRFilePath)
 	);
 
 	// connection

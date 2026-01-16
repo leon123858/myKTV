@@ -1,3 +1,6 @@
+export const IRFilePath =
+	process.env.NODE_ENV === 'production' ? '/myKTV/plate01.wav' : '/plate01.wav';
+
 export function generateFakeIRBuffer(ctx: AudioContext, roomSizeConst = 0.5) {
 	const irLength = ctx.sampleRate * 2; // 2秒混響
 	const irBuffer = ctx.createBuffer(2, irLength, ctx.sampleRate);
