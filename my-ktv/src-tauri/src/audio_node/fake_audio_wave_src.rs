@@ -1,3 +1,6 @@
+use crate::audio_node::node_const::{
+    MOCK_AUDIO_SAMPLE_HZ, MOCK_AUDIO_SAMPLE_RATE, PREFERRED_SAMPLE_RATE,
+};
 use crate::audio_node::{AudioNode, AudioNodeState, AudioNodeType};
 use rtrb::Producer;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -83,8 +86,8 @@ impl AudioNode for FakeAudioWaveSRC {
 }
 
 fn generate_sine_wave(producer: &mut Producer<f32>, phase: f32) -> Result<f32, String> {
-    let sample_rate = 48000.0;
-    let frequency = 440.0;
+    let sample_rate = MOCK_AUDIO_SAMPLE_RATE;
+    let frequency = MOCK_AUDIO_SAMPLE_HZ;
     let mut cur_phase = phase;
 
     while producer.slots() >= 2 {

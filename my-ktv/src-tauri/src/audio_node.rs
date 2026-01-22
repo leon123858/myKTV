@@ -1,10 +1,19 @@
+/***
+ * @ Mod:       audio_node
+ * @ Author:    Leon Lin
+ * @ Date:      20260121
+ */
+
 pub mod fake_audio_wave_src;
+pub mod mic_src;
+mod node_const;
 pub mod speaker_dest;
+mod utils;
 
 use crate::audio_node::fake_audio_wave_src::FakeAudioWaveSRC;
+use crate::audio_node::mic_src::MicSrc;
 use crate::audio_node::speaker_dest::SpeakerDest;
-
-pub const RING_BUFFER_CAPACITY: usize = 65536;
+use rtrb::Producer;
 
 #[derive(Clone, Copy, Debug)]
 pub enum AudioNodeType {
@@ -22,6 +31,7 @@ pub enum AudioNodeState {
 pub enum AudioNodeEnum {
     FakeAudioWaveSRC(FakeAudioWaveSRC),
     SpeakerDest(SpeakerDest),
+    MicSrc(MicSrc),
 }
 
 pub trait AudioNode {
@@ -41,6 +51,7 @@ impl AudioNode for AudioNodeEnum {
         match self {
             AudioNodeEnum::FakeAudioWaveSRC(node) => node.start(),
             AudioNodeEnum::SpeakerDest(node) => node.start(),
+            AudioNodeEnum::MicSrc(node) => node.start(),
         }
     }
 
@@ -48,6 +59,7 @@ impl AudioNode for AudioNodeEnum {
         match self {
             AudioNodeEnum::FakeAudioWaveSRC(node) => node.stop(),
             AudioNodeEnum::SpeakerDest(node) => node.stop(),
+            AudioNodeEnum::MicSrc(node) => node.stop(),
         }
     }
 
@@ -55,6 +67,7 @@ impl AudioNode for AudioNodeEnum {
         match self {
             AudioNodeEnum::FakeAudioWaveSRC(node) => node.get_type(),
             AudioNodeEnum::SpeakerDest(node) => node.get_type(),
+            AudioNodeEnum::MicSrc(node) => node.get_type(),
         }
     }
 
@@ -62,6 +75,7 @@ impl AudioNode for AudioNodeEnum {
         match self {
             AudioNodeEnum::FakeAudioWaveSRC(node) => node.get_state(),
             AudioNodeEnum::SpeakerDest(node) => node.get_state(),
+            AudioNodeEnum::MicSrc(node) => node.get_state(),
         }
     }
 }
@@ -69,14 +83,32 @@ impl AudioNode for AudioNodeEnum {
 pub fn connect(source: &mut AudioNodeEnum, dest: &mut AudioNodeEnum) -> Result<(), String> {
     match (source, dest) {
         (AudioNodeEnum::FakeAudioWaveSRC(src_inner), AudioNodeEnum::SpeakerDest(dest_inner)) => {
-            if let Some(producer) = dest_inner.audio_producer.take() {
-                src_inner.audio_producer = Some(producer);
-                Ok(())
-            } else {
-                Err("No producer available in dest".to_string())
-            }
+            transfer_producer(
+                &mut src_inner.audio_producer,
+                &mut dest_inner.audio_producer,
+            )
+        }
+
+        (AudioNodeEnum::MicSrc(src_inner), AudioNodeEnum::SpeakerDest(dest_inner)) => {
+            transfer_producer(
+                &mut src_inner.audio_producer,
+                &mut dest_inner.audio_producer,
+            )
         }
 
         _ => Err("no supported connection".to_string()),
+    }
+}
+
+fn transfer_producer(
+    src_producer_slot: &mut Option<Producer<f32>>,
+    dest_producer_slot: &mut Option<Producer<f32>>,
+) -> Result<(), String> {
+    match dest_producer_slot.take() {
+        Some(producer) => {
+            *src_producer_slot = Some(producer);
+            Ok(())
+        }
+        None => Err("No producer available in destination (maybe already connected?)".to_string()),
     }
 }

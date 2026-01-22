@@ -1,10 +1,11 @@
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
 use crate::audio_node::fake_audio_wave_src::FakeAudioWaveSRC;
+use crate::audio_node::mic_src::MicSrc;
 use crate::audio_node::speaker_dest::SpeakerDest;
 use crate::audio_node::{connect, AudioNode, AudioNodeEnum};
 use tauri::State;
-mod audio_node;
-mod dsp;
+
+pub mod audio_node;
 
 pub struct SendWrapper<T>(pub T);
 unsafe impl<T> Send for SendWrapper<T> {}
@@ -20,12 +21,12 @@ fn greet(
     let mut mode_state = mode_state.0.lock().expect("Mutex poisoned");
 
     if *mode_state == 0 {
-        if let Some(first_node) = nodes.get_mut(0) {
+        if let Some(first_node) = nodes.get_mut(1) {
             first_node.start();
         }
         *mode_state = 1;
     } else {
-        if let Some(first_node) = nodes.get_mut(0) {
+        if let Some(first_node) = nodes.get_mut(1) {
             first_node.stop();
         }
         *mode_state = 0;
@@ -37,7 +38,7 @@ fn greet(
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let mut nodes: Vec<AudioNodeEnum> = vec![
-        AudioNodeEnum::FakeAudioWaveSRC(FakeAudioWaveSRC::init()),
+        AudioNodeEnum::MicSrc(MicSrc::init()),
         AudioNodeEnum::SpeakerDest(SpeakerDest::init()),
     ];
 
@@ -45,11 +46,11 @@ pub fn run() {
         connect(src, dest).expect("Connect failed");
     }
 
-    nodes[1].start();
+    nodes[0].start();
     println!(
         "Node type: {:?}, State: {:?}",
-        nodes[1].get_type(),
-        nodes[1].get_state()
+        nodes[0].get_type(),
+        nodes[0].get_state()
     );
 
     tauri::Builder::default()
