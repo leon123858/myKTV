@@ -1,9 +1,9 @@
+use cpal::traits::{DeviceTrait, HostTrait};
 use my_ktv_lib::audio_node::{
-    connect, mic_src::MicSrc, speaker_dest::SpeakerDest, AudioNode, AudioNodeEnum, AudioNodeState,
+    connect, mic_src::MicSrc, speaker_dest::SpeakerDest, AudioNode, AudioNodeEnum,
 };
 use std::thread;
 use std::time::Duration;
-use cpal::traits::{DeviceTrait, HostTrait};
 
 // 輔助函式：快速建立並連接
 fn setup_loopback() -> (AudioNodeEnum, AudioNodeEnum) {
@@ -27,7 +27,6 @@ fn test_all_mic_config() {
     for config in supported_configs {
         println!("[HAL] Supported Config: {:?}", config);
     }
-    
 }
 
 #[test]

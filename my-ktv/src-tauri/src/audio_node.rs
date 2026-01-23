@@ -90,6 +90,7 @@ pub fn connect(source: &mut AudioNodeEnum, dest: &mut AudioNodeEnum) -> Result<(
         }
 
         (AudioNodeEnum::MicSrc(src_inner), AudioNodeEnum::SpeakerDest(dest_inner)) => {
+            src_inner.input_producer_config = Option::from(dest_inner.config.clone());
             transfer_producer(
                 &mut src_inner.audio_producer,
                 &mut dest_inner.audio_producer,

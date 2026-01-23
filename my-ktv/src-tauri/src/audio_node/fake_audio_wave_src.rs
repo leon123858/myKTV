@@ -1,6 +1,4 @@
-use crate::audio_node::node_const::{
-    MOCK_AUDIO_SAMPLE_HZ, MOCK_AUDIO_SAMPLE_RATE, PREFERRED_SAMPLE_RATE,
-};
+use crate::audio_node::node_const::{MOCK_AUDIO_SAMPLE_HZ, MOCK_AUDIO_SAMPLE_RATE};
 use crate::audio_node::{AudioNode, AudioNodeState, AudioNodeType};
 use rtrb::Producer;
 use std::sync::atomic::{AtomicBool, Ordering};

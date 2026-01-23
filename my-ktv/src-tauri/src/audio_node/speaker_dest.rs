@@ -1,17 +1,15 @@
-use crate::audio_node::node_const::{
-     RING_BUFFER_CAPACITY,
-};
+use crate::audio_node::node_const::RING_BUFFER_CAPACITY;
+use crate::audio_node::utils::{generate_output_resolve_config, IOStreamConfig};
 use crate::audio_node::{AudioNode, AudioNodeState, AudioNodeType};
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
-use cpal::{SampleFormat, SampleRate, Stream, StreamConfig, StreamError};
+use cpal::{FromSample, Sample, Stream, StreamError};
 use rtrb::{Consumer, Producer, RingBuffer};
-use crate::audio_node::utils::{generate_output_resolve_config};
 
 pub struct SpeakerDest {
     pub state: AudioNodeState,
     pub audio_producer: Option<Producer<f32>>,
     pub output_stream: Stream,
-    pub config: StreamConfig,
+    pub config: IOStreamConfig,
 }
 
 impl AudioNode for SpeakerDest {
@@ -23,7 +21,7 @@ impl AudioNode for SpeakerDest {
         let output_device = host
             .default_output_device()
             .expect("no output device available");
-        println!("[HAL] Output Device: {:?}", output_device.name());
+        println!("[HAL] Output Device: {:?}", output_device.description().unwrap().name());
 
         // negotiation function
         let mut resolve_config_fn = generate_output_resolve_config("Speaker".parse().unwrap());
@@ -38,12 +36,33 @@ impl AudioNode for SpeakerDest {
 
         println!("[HAL] New Producer Size: {:?}", producer.slots());
 
-        let output_stream_ret = output_device.build_output_stream(
-            &output_config,
-            data_hdl_cb_creator(consumer),
-            err_hdl_cb,
-            None, // Timeout: blocking negotiation
-        );
+        let output_stream_ret = match output_config.sample_format {
+            cpal::SampleFormat::F32 => output_device.build_output_stream(
+                &output_config.stream_config,
+                data_hdl_cb_creator::<f32>(consumer),
+                err_hdl_cb,
+                None, // Timeout: blocking negotiation
+            ),
+            cpal::SampleFormat::I32 => output_device.build_output_stream(
+                &output_config.stream_config,
+                data_hdl_cb_creator::<i32>(consumer),
+                err_hdl_cb,
+                None, // Timeout: blocking negotiation
+            ),
+            cpal::SampleFormat::I16 => output_device.build_output_stream(
+                &output_config.stream_config,
+                data_hdl_cb_creator::<i16>(consumer),
+                err_hdl_cb,
+                None, // Timeout: blocking negotiation
+            ),
+            cpal::SampleFormat::U8 => output_device.build_output_stream(
+                &output_config.stream_config,
+                data_hdl_cb_creator::<u8>(consumer),
+                err_hdl_cb,
+                None, // Timeout: blocking negotiation
+            ),
+            _ => panic!("Unsupported format"),
+        };
 
         let output_stream = output_stream_ret.expect("output stream created error");
 
@@ -78,39 +97,34 @@ fn err_hdl_cb(err: StreamError) {
     eprintln!("[HAL] Output Stream Error: {}", err);
 }
 
-fn data_hdl_cb_creator(
+pub fn data_hdl_cb_creator<T>(
     mut consumer: Consumer<f32>,
-) -> impl FnMut(&mut [f32], &cpal::OutputCallbackInfo) {
-    move |data: &mut [f32], _: &cpal::OutputCallbackInfo| {
+) -> impl FnMut(&mut [T], &cpal::OutputCallbackInfo)
+where
+    T: Sample + FromSample<f32>,
+{
+    move |data: &mut [T], _: &cpal::OutputCallbackInfo| {
+        let n = data.len();
 
-        // read ring buffer data and send to output stream data
-        let read_chunk_result = consumer.read_chunk(data.len());
-        match read_chunk_result {
+        match consumer.read_chunk(n) {
             Ok(chunk) => {
-                // read chunk may be two split slice in ring buffer
-                // because ring buffer's ring back property
                 let (first, second) = chunk.as_slices();
-
                 let first_len = first.len();
-                let second_len = second.len();
-                let mut data_idx = 0;
-                for i in 0..first_len {
-                    data[data_idx] = first[i];
-                    data_idx += 1
-                }
-                for i in 0..second_len {
-                    data[data_idx] = second[i];
-                    data_idx += 1
-                }
-                assert_eq!(data_idx, data.len());
 
-                // move ring buf ptr
+                for (dest, &src) in data[..first_len].iter_mut().zip(first.iter()) {
+                    *dest = T::from_sample(src);
+                }
+
+                if !second.is_empty() {
+                    for (dest, &src) in data[first_len..].iter_mut().zip(second.iter()) {
+                        *dest = T::from_sample(src);
+                    }
+                }
+
                 chunk.commit_all();
             }
-            Err(err) => {
-                // println!("chunk read error: {:?}", err);
-                data.fill(0.0);
-                return;
+            Err(_) => {
+                data.fill(T::EQUILIBRIUM);
             }
         }
     }

@@ -50,8 +50,8 @@ mod tests {
         let input_device = host.default_input_device().expect("no input device");
         let output_device = host.default_output_device().expect("no output device");
 
-        println!("Input: {}", input_device.name().unwrap_or_default());
-        println!("Output: {}", output_device.name().unwrap_or_default());
+        println!("Input: {}", input_device.description()?.name());
+        println!("Output: {}", output_device.description()?.name());
 
         // 1. 協商採樣率 (Sample Rate)
         let common_sample_rate = find_common_sample_rate(&input_device, &output_device)?;

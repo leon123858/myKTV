@@ -1,16 +1,16 @@
-use crate::audio_node::node_const::{PREFERRED_SAMPLE_RATE, RING_BUFFER_CAPACITY};
+use crate::audio_node::utils::{generate_input_resolve_config, IOStreamConfig};
 use crate::audio_node::{AudioNode, AudioNodeState, AudioNodeType};
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
-use cpal::{SampleFormat, SampleRate, Stream, StreamConfig, StreamError};
+use cpal::{FromSample, Sample, SampleFormat, Stream, StreamConfig, StreamError};
 use rtrb::Producer;
-use crate::audio_node::utils::{generate_input_resolve_config};
 
 pub struct MicSrc {
     pub state: AudioNodeState,
     pub audio_producer: Option<Producer<f32>>,
+    pub input_producer_config: Option<IOStreamConfig>,
     input_stream: Option<Stream>,
     device: cpal::Device,
-    config: cpal::StreamConfig,
+    config: IOStreamConfig,
 }
 
 impl AudioNode for MicSrc {
@@ -21,7 +21,10 @@ impl AudioNode for MicSrc {
             .default_input_device()
             .expect("no input device available");
 
-        println!("[HAL] Input Device: {:?}", input_device.description().unwrap().name());
+        println!(
+            "[HAL] Input Device: {:?}",
+            input_device.description().unwrap().name()
+        );
 
         // negotiation function
         let mut resolve_config_fn = generate_input_resolve_config("Mic".parse().unwrap());
@@ -34,6 +37,7 @@ impl AudioNode for MicSrc {
         Self {
             state: AudioNodeState::INITIALIZED,
             audio_producer: None,
+            input_producer_config: None,
             input_stream: None,
             device: input_device,
             config: input_config,
@@ -43,31 +47,82 @@ impl AudioNode for MicSrc {
     fn start(&mut self) {
         // 如果 Stream 尚未建立 (第一次 Start)，則利用 Producer 建立 Stream
         if self.input_stream.is_none() {
-            let mut producer = match self.audio_producer.take() {
+            let producer = match self.audio_producer.take() {
                 Some(p) => p,
                 None => panic!("MicSrc: cannot start, no producer connected"),
             };
+            let producer_config = match self.input_producer_config.take() {
+                Some(c) => c,
+                None => panic!("MicSrc: cannot start, no producer config"),
+            };
+            let input_config = &self.config;
 
             println!(
                 "[HAL] Starting Audio Producer {}, {} HZ",
                 producer.slots(),
-                self.config.sample_rate
+                self.config.stream_config.sample_rate
             );
 
-            while !producer.is_full() {
-                let _ = producer.push(0.0);
-            }
+            // for _ in 0..300000 {
+            //     let _ = producer.push(0.0);
+            // }
 
-            let channels = self.config.channels;
-            let stream = self
-                .device
-                .build_input_stream(
-                    &self.config,
-                    data_input_callback_creator(producer, channels),
-                    err_hdl_cb,
-                    None,
-                )
-                .expect("failed to build input stream");
+            let stream = match input_config.sample_format {
+                SampleFormat::F32 => self
+                    .device
+                    .build_input_stream(
+                        &self.config.stream_config,
+                        data_input_callback_creator::<f32>(
+                            producer,
+                            input_config.stream_config.clone(),
+                            producer_config.stream_config,
+                        ),
+                        err_hdl_cb,
+                        None,
+                    )
+                    .expect("failed to build input stream"),
+                SampleFormat::I32 => self
+                    .device
+                    .build_input_stream(
+                        &self.config.stream_config,
+                        data_input_callback_creator::<i32>(
+                            producer,
+                            input_config.stream_config.clone(),
+                            producer_config.stream_config,
+                        ),
+                        err_hdl_cb,
+                        None,
+                    )
+                    .expect("failed to build input stream"),
+                SampleFormat::I16 => self
+                    .device
+                    .build_input_stream(
+                        &self.config.stream_config,
+                        data_input_callback_creator::<i16>(
+                            producer,
+                            input_config.stream_config.clone(),
+                            producer_config.stream_config,
+                        ),
+                        err_hdl_cb,
+                        None,
+                    )
+                    .expect("failed to build input stream"),
+                SampleFormat::U8 => self
+                    .device
+                    .build_input_stream(
+                        &self.config.stream_config,
+                        data_input_callback_creator::<u8>(
+                            producer,
+                            input_config.stream_config.clone(),
+                            producer_config.stream_config,
+                        ),
+                        err_hdl_cb,
+                        None,
+                    )
+                    .expect("failed to build input stream"),
+
+                _ => panic!("MicSrc: cannot start, no producer sample format"),
+            };
 
             self.input_stream = Some(stream);
         }
@@ -100,26 +155,70 @@ fn err_hdl_cb(err: StreamError) {
     eprintln!("[HAL] Input Stream Error: {}", err);
 }
 
-// 建立輸入回調閉包，這會將 Producer 所有權移入 Audio Thread
-fn data_input_callback_creator(
+fn data_input_callback_creator<T>(
     mut producer: Producer<f32>,
-    channels: u16,
-    // sample_format: SampleFormat,
-    // sample_rate: i32
-) -> impl FnMut(&[f32], &cpal::InputCallbackInfo) {
-    move |data: &[f32], _: &cpal::InputCallbackInfo| {
-        // ensure_realtime_priority();
+    src_cfg: StreamConfig,
+    target_cfg: StreamConfig,
+) -> impl FnMut(&[T], &cpal::InputCallbackInfo)
+where
+    T: Sample,
+    f32: FromSample<T>,
+{
+    let src_channels = src_cfg.channels as usize;
+    let target_channels = target_cfg.channels as usize;
 
-        let gain: f32 = 100.0;
-        let mut output_iter = data.iter();
-        while let Some(&sample) = output_iter.next() {
-            // 檢查 Producer 是否有足夠空間塞入所有聲道
-            if producer.slots() >= channels as usize {
-                for _ in 0..channels {
-                    // 這裡建議用 push 而不是 expect，避免在音訊線程 panic
-                    if let Err(_) = producer.push((sample * gain).clamp(-1.0, 1.0)) {}
-                }
-            }
+    let resample_ratio = src_cfg.sample_rate as f32 / target_cfg.sample_rate as f32;
+
+    let mut current_input_idx_f32: f32 = 0.0;
+
+    move |data: &[T], _: &cpal::InputCallbackInfo| {
+        if producer.is_full() {
+            return;
         }
+
+        let total_samples = data.len();
+        let total_frames = total_samples / src_channels;
+
+        // loop each frame => 2 item for 2 channel case
+        while (current_input_idx_f32 as usize) < total_frames {
+            // Decompose the current idx into integers and decimals.
+            let first_idx = current_input_idx_f32 as usize;
+            let fract = current_input_idx_f32 - first_idx as f32;
+            // get next index
+            let next_index = if first_idx + 1 < total_frames {
+                // next item
+                first_idx + 1
+            } else {
+                // edge case, don't move
+                first_idx
+            };
+
+            // get value between first_idx and  next_index
+            let frame_first_start = first_idx * src_channels;
+            let frame_second_start = next_index * src_channels;
+
+            let mut frame_first_sum = 0.0;
+            let mut frame_second_sum = 0.0;
+
+            for idx in 0..src_channels {
+                frame_first_sum += data[frame_first_start + idx].to_sample::<f32>();
+                frame_second_sum += data[frame_second_start + idx].to_sample::<f32>();
+            }
+
+            let mut frame_first_avg = frame_first_sum / src_channels as f32;
+            let mut frame_second_avg = frame_second_sum / src_channels as f32;
+
+            // Linear Interpolation
+            let final_value = frame_first_avg + (frame_second_avg - frame_first_avg) * fract;
+
+            // push frame into channel
+            for _ in 0..target_channels {
+                let _ = producer.push(final_value);
+            }
+
+            current_input_idx_f32 += resample_ratio;
+        }
+
+        current_input_idx_f32 -= total_frames as f32;
     }
 }
