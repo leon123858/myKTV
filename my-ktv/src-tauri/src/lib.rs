@@ -1,5 +1,4 @@
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
-use crate::audio_node::fake_audio_wave_src::FakeAudioWaveSRC;
 use crate::audio_node::mic_src::MicSrc;
 use crate::audio_node::speaker_dest::SpeakerDest;
 use crate::audio_node::{connect, AudioNode, AudioNodeEnum};
@@ -21,16 +20,22 @@ fn greet(
     let mut mode_state = mode_state.0.lock().expect("Mutex poisoned");
 
     if *mode_state == 0 {
-        if let Some(first_node) = nodes.get_mut(1) {
+        if let Some(first_node) = nodes.get_mut(0) {
             first_node.start();
         }
         *mode_state = 1;
     } else {
-        if let Some(first_node) = nodes.get_mut(1) {
+        if let Some(first_node) = nodes.get_mut(0) {
             first_node.stop();
         }
         *mode_state = 0;
     }
+
+    println!(
+        "Node type: {:?}, State: {:?}",
+        nodes[0].get_type(),
+        nodes[0].get_state()
+    );
 
     format!("Hello, {}! You've been greeted from Rust!", name)
 }
@@ -46,11 +51,11 @@ pub fn run() {
         connect(src, dest).expect("Connect failed");
     }
 
-    nodes[0].start();
+    nodes[1].start();
     println!(
         "Node type: {:?}, State: {:?}",
-        nodes[0].get_type(),
-        nodes[0].get_state()
+        nodes[1].get_type(),
+        nodes[1].get_state()
     );
 
     tauri::Builder::default()

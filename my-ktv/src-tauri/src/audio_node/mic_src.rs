@@ -57,16 +57,6 @@ impl AudioNode for MicSrc {
             };
             let input_config = &self.config;
 
-            println!(
-                "[HAL] Starting Audio Producer {}, {} HZ",
-                producer.slots(),
-                self.config.stream_config.sample_rate
-            );
-
-            // for _ in 0..300000 {
-            //     let _ = producer.push(0.0);
-            // }
-
             let stream = match input_config.sample_format {
                 SampleFormat::F32 => self
                     .device
@@ -173,6 +163,7 @@ where
 
     move |data: &[T], _: &cpal::InputCallbackInfo| {
         if producer.is_full() {
+            println!("[HAL] Buffer full");
             return;
         }
 
@@ -205,8 +196,8 @@ where
                 frame_second_sum += data[frame_second_start + idx].to_sample::<f32>();
             }
 
-            let mut frame_first_avg = frame_first_sum / src_channels as f32;
-            let mut frame_second_avg = frame_second_sum / src_channels as f32;
+            let frame_first_avg = frame_first_sum / src_channels as f32;
+            let frame_second_avg = frame_second_sum / src_channels as f32;
 
             // Linear Interpolation
             let final_value = frame_first_avg + (frame_second_avg - frame_first_avg) * fract;

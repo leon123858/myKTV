@@ -4,6 +4,7 @@ use crate::audio_node::{AudioNode, AudioNodeState, AudioNodeType};
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use cpal::{FromSample, Sample, Stream, StreamError};
 use rtrb::{Consumer, Producer, RingBuffer};
+use std::cmp::min;
 
 pub struct SpeakerDest {
     pub state: AudioNodeState,
@@ -21,7 +22,10 @@ impl AudioNode for SpeakerDest {
         let output_device = host
             .default_output_device()
             .expect("no output device available");
-        println!("[HAL] Output Device: {:?}", output_device.description().unwrap().name());
+        println!(
+            "[HAL] Output Device: {:?}",
+            output_device.description().unwrap().name()
+        );
 
         // negotiation function
         let mut resolve_config_fn = generate_output_resolve_config("Speaker".parse().unwrap());
@@ -104,9 +108,13 @@ where
     T: Sample + FromSample<f32>,
 {
     move |data: &mut [T], _: &cpal::OutputCallbackInfo| {
-        let n = data.len();
+        let target_len = data.len();
+        let source_len = consumer.slots();
 
-        match consumer.read_chunk(n) {
+        let fetch_from_source_cnt = min(target_len, source_len);
+        let should_fill_zero_start = fetch_from_source_cnt;
+
+        match consumer.read_chunk(fetch_from_source_cnt) {
             Ok(chunk) => {
                 let (first, second) = chunk.as_slices();
                 let first_len = first.len();
@@ -123,9 +131,17 @@ where
 
                 chunk.commit_all();
             }
-            Err(_) => {
+            Err(err) => {
+                println!("[HAL] Error reading data {:?}", err);
                 data.fill(T::EQUILIBRIUM);
             }
         }
+
+        if fetch_from_source_cnt < target_len {
+            // println!("[HAL] input is less than target len {}: {}", fetch_from_source_cnt, target_len);
+            data[should_fill_zero_start..].fill(T::EQUILIBRIUM);
+        }
     }
+
+
 }
