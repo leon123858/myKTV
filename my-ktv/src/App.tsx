@@ -1,49 +1,93 @@
 import { useState } from "react";
-import reactLogo from "./assets/react.svg";
 import { invoke } from "@tauri-apps/api/core";
 import "./App.css";
 
 function App() {
-  const [greetMsg, setGreetMsg] = useState("");
-  const [name, setName] = useState("");
+  const [currentFile, setCurrentFile] = useState<string>("No file selected");
+  const [statusMsg, setStatusMsg] = useState<string>("");
+  const [isPlaying, setIsPlaying] = useState<boolean>(false);
 
-  async function greet() {
-    // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
-    setGreetMsg(await invoke("greet", { name }));
+  async function handleUpload() {
+    try {
+      const filePath = await invoke<string>("upload_audio_file");
+      setCurrentFile(filePath);
+      setStatusMsg(`File selected: ${filePath.split(/[/\\]/).pop()}`);
+    } catch (error) {
+      setStatusMsg(`Upload failed: ${error}`);
+    }
+  }
+
+  async function handlePlay() {
+    if (currentFile === "No file selected") {
+      setStatusMsg("Please select a file first!");
+      return;
+    }
+
+    try {
+      const result = await invoke<string>("play_audio_file", { path: currentFile });
+      setStatusMsg(result);
+      setIsPlaying(true);
+    } catch (error) {
+      setStatusMsg(`Play failed: ${error}`);
+      setIsPlaying(false);
+    }
+  }
+
+  async function handleStop() {
+    try {
+      const result = await invoke<string>("stop_audio");
+      setStatusMsg(result);
+      setIsPlaying(false);
+    } catch (error) {
+      setStatusMsg(`Stop failed: ${error}`);
+    }
   }
 
   return (
     <main className="container">
-      <h1>Welcome to Tauri + React</h1>
+      <h1>My KTV - Audio Player</h1>
 
-      <div className="row">
-        <a href="https://vite.dev" target="_blank">
-          <img src="/vite.svg" className="logo vite" alt="Vite logo" />
-        </a>
-        <a href="https://tauri.app" target="_blank">
-          <img src="/tauri.svg" className="logo tauri" alt="Tauri logo" />
-        </a>
-        <a href="https://react.dev" target="_blank">
-          <img src={reactLogo} className="logo react" alt="React logo" />
-        </a>
+      <div className="card">
+        <h2>🎵 File Controls</h2>
+
+        <div className="file-info">
+          <p><strong>Selected File:</strong></p>
+          <p className="file-path">{currentFile.split(/[/\\]/).pop() || "None"}</p>
+        </div>
+
+        <div className="button-group">
+          <button onClick={handleUpload} className="btn-upload">
+            📁 Upload Audio File
+          </button>
+
+          <button
+            onClick={handlePlay}
+            disabled={currentFile === "No file selected" || isPlaying}
+            className="btn-play"
+          >
+            ▶️ Play
+          </button>
+
+          <button
+            onClick={handleStop}
+            disabled={!isPlaying}
+            className="btn-stop"
+          >
+            ⏹️ Stop
+          </button>
+        </div>
+
+        {statusMsg && (
+          <div className={`status-message ${statusMsg.includes("failed") ? "error" : "success"}`}>
+            {statusMsg}
+          </div>
+        )}
       </div>
-      <p>Click on the Tauri, Vite, and React logos to learn more.</p>
 
-      <form
-        className="row"
-        onSubmit={(e) => {
-          e.preventDefault();
-          greet();
-        }}
-      >
-        <input
-          id="greet-input"
-          onChange={(e) => setName(e.currentTarget.value)}
-          placeholder="Enter a name..."
-        />
-        <button type="submit">Greet</button>
-      </form>
-      <p>{greetMsg}</p>
+      <div className="info">
+        <p>Supported formats: MP3, WAV, FLAC, OGG, M4A</p>
+        <p>Status: {isPlaying ? "🔊 Playing" : "⏸️ Stopped"}</p>
+      </div>
     </main>
   );
 }

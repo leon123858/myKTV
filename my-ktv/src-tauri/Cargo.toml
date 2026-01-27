@@ -20,8 +20,11 @@ tauri-build = { version = "2", features = [] }
 [dependencies]
 tauri = { version = "2", features = [] }
 tauri-plugin-opener = "2"
+tauri-plugin-dialog = "2"
 
 # add your dependencies here
 cpal = { version = "0.17.1", features = ["audio_thread_priority"] }
 anyhow = "1.0"
 rtrb = "0.3"
+rodio = "0.19"
+rubato = "0.16"

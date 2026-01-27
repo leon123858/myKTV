@@ -5,12 +5,14 @@
  */
 
 pub mod fake_audio_wave_src;
+pub mod file_src;
 pub mod mic_src;
 mod node_const;
 pub mod speaker_dest;
 mod utils;
 
 use crate::audio_node::fake_audio_wave_src::FakeAudioWaveSRC;
+use crate::audio_node::file_src::FileSrc;
 use crate::audio_node::mic_src::MicSrc;
 use crate::audio_node::speaker_dest::SpeakerDest;
 use rtrb::Producer;
@@ -30,6 +32,7 @@ pub enum AudioNodeState {
 
 pub enum AudioNodeEnum {
     FakeAudioWaveSRC(FakeAudioWaveSRC),
+    FileSrc(FileSrc),
     SpeakerDest(SpeakerDest),
     MicSrc(MicSrc),
 }
@@ -50,6 +53,7 @@ impl AudioNode for AudioNodeEnum {
     fn start(&mut self) {
         match self {
             AudioNodeEnum::FakeAudioWaveSRC(node) => node.start(),
+            AudioNodeEnum::FileSrc(node) => node.start(),
             AudioNodeEnum::SpeakerDest(node) => node.start(),
             AudioNodeEnum::MicSrc(node) => node.start(),
         }
@@ -58,6 +62,7 @@ impl AudioNode for AudioNodeEnum {
     fn stop(&mut self) {
         match self {
             AudioNodeEnum::FakeAudioWaveSRC(node) => node.stop(),
+            AudioNodeEnum::FileSrc(node) => node.stop(),
             AudioNodeEnum::SpeakerDest(node) => node.stop(),
             AudioNodeEnum::MicSrc(node) => node.stop(),
         }
@@ -66,6 +71,7 @@ impl AudioNode for AudioNodeEnum {
     fn get_type(&self) -> AudioNodeType {
         match self {
             AudioNodeEnum::FakeAudioWaveSRC(node) => node.get_type(),
+            AudioNodeEnum::FileSrc(node) => node.get_type(),
             AudioNodeEnum::SpeakerDest(node) => node.get_type(),
             AudioNodeEnum::MicSrc(node) => node.get_type(),
         }
@@ -74,6 +80,7 @@ impl AudioNode for AudioNodeEnum {
     fn get_state(&self) -> AudioNodeState {
         match self {
             AudioNodeEnum::FakeAudioWaveSRC(node) => node.get_state(),
+            AudioNodeEnum::FileSrc(node) => node.get_state(),
             AudioNodeEnum::SpeakerDest(node) => node.get_state(),
             AudioNodeEnum::MicSrc(node) => node.get_state(),
         }
@@ -91,6 +98,13 @@ pub fn connect(source: &mut AudioNodeEnum, dest: &mut AudioNodeEnum) -> Result<(
 
         (AudioNodeEnum::MicSrc(src_inner), AudioNodeEnum::SpeakerDest(dest_inner)) => {
             src_inner.input_producer_config = Option::from(dest_inner.config.clone());
+            transfer_producer(
+                &mut src_inner.audio_producer,
+                &mut dest_inner.audio_producer,
+            )
+        }
+
+        (AudioNodeEnum::FileSrc(src_inner), AudioNodeEnum::SpeakerDest(dest_inner)) => {
             transfer_producer(
                 &mut src_inner.audio_producer,
                 &mut dest_inner.audio_producer,
