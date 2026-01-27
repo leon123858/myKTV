@@ -20,49 +20,54 @@ pub struct FileSrc {
     pub audio_producer: Option<Producer<f32>>,
     keep_running: Arc<AtomicBool>,
     producer_handler: Option<JoinHandle<Producer<f32>>>,
-    file_path: PathBuf,
-    sample_rate: u32,
-    channels: u16,
+    file_path: Option<PathBuf>,
+    producer_sample_rate: Option<u32>,
+    producer_channels: Option<usize>,
+    sleep_ms: u64,
 }
 
 impl FileSrc {
-    pub fn new(file_path: PathBuf, sample_rate: u32, channels: u16) -> Self {
-        Self {
-            state: AudioNodeState::INITIALIZED,
-            audio_producer: None,
-            keep_running: Arc::new(AtomicBool::new(false)),
-            producer_handler: None,
-            file_path,
-            sample_rate,
-            channels,
-        }
+    pub fn set_config(&mut self, file_path: PathBuf, sample_rate: u32, channels: usize) {
+        self.file_path = Some(file_path);
+        self.producer_sample_rate = Some(sample_rate);
+        self.producer_channels = Some(channels);
     }
 }
 
 impl AudioNode for FileSrc {
     fn init() -> Self {
-        // Default initialization - users should use FileSrc::new() instead
+        // Default initialization
         Self {
             state: AudioNodeState::INITIALIZED,
             audio_producer: None,
             keep_running: Arc::new(AtomicBool::new(false)),
             producer_handler: None,
-            file_path: PathBuf::from("test.mp3"),
-            sample_rate: 48000,
-            channels: 2,
+            file_path: None,
+            producer_sample_rate: None,
+            producer_channels: None,
+            sleep_ms: 10,
         }
     }
 
     fn start(&mut self) {
-        let sleep_ms = 10;
+        let sleep_ms = self.sleep_ms;
         let mut producer = match self.audio_producer.take() {
             Some(p) => p,
             None => panic!("FileSrc: cannot start audio node - no producer"),
         };
+        let file_path = match self.file_path.take() {
+            Some(p) => p,
+            None => panic!("FileSrc: cannot start audio node - no file path"),
+        };
+        let target_sample_rate = match self.producer_sample_rate.take() {
+            Some(p) => p,
+            None => panic!("FileSrc: cannot start audio node - no file path"),
+        };
+        let target_channels = match self.producer_channels.take() {
+            Some(p) => p,
+            None => panic!("FileSrc: cannot start audio node - no file path"),
+        };
 
-        let file_path = self.file_path.clone();
-        let target_sample_rate = self.sample_rate;
-        let target_channels = self.channels;
         let keep_running = Arc::clone(&self.keep_running);
         keep_running.store(true, Ordering::Relaxed);
 
@@ -88,7 +93,7 @@ impl AudioNode for FileSrc {
             };
 
             let source_sample_rate = source.sample_rate();
-            let source_channels = source.channels();
+            let source_channels = source.channels() as usize;
             println!(
                 "[FileSrc] Source: {}Hz, {} channels",
                 source_sample_rate, source_channels
@@ -144,12 +149,10 @@ impl AudioNode for FileSrc {
 
                 // Interleave resampled samples
                 let mut resampled = Vec::new();
-                let num_samples = resampled_channels[0].len();
-                for i in 0..num_samples {
+
+                for i in 0..resampled_channels[0].len() {
                     for channel in &resampled_channels {
-                        if i < channel.len() {
-                            resampled.push(channel[i]);
-                        }
+                        resampled.push(channel[i]);
                     }
                 }
 
@@ -164,24 +167,27 @@ impl AudioNode for FileSrc {
                 println!("[FileSrc] Channel conversion required");
                 let mut converted = Vec::new();
 
-                if source_channels == 1 && target_channels == 2 {
+                if source_channels == 1 {
                     // Mono to stereo: duplicate each sample
                     for sample in &resampled_samples {
-                        converted.push(*sample);
-                        converted.push(*sample);
+                        for _ in 0..target_channels {
+                            converted.push(*sample);
+                        }
                     }
-                } else if source_channels == 2 && target_channels == 1 {
+                } else if source_channels > 1 {
                     // Stereo to mono: average pairs
-                    for chunk in resampled_samples.chunks(2) {
+                    for chunk in resampled_samples.chunks(source_channels) {
                         let avg = chunk.iter().sum::<f32>() / chunk.len() as f32;
-                        converted.push(avg);
+                        for _ in 0..target_channels {
+                            converted.push(avg);
+                        }
                     }
                 } else {
                     eprintln!(
                         "[FileSrc] Unsupported channel conversion: {} -> {}",
                         source_channels, target_channels
                     );
-                    converted = resampled_samples;
+                    assert!(false, "Unsupported channel conversion");
                 }
 
                 println!("[FileSrc] Converted to {} samples", converted.len());
@@ -195,12 +201,25 @@ impl AudioNode for FileSrc {
             let mut idx = 0;
             while keep_running.load(Ordering::Relaxed) && idx < final_samples.len() {
                 // Try to push samples in chunks
-                while producer.slots() >= 2 && idx < final_samples.len() {
-                    if producer.push(final_samples[idx]).is_err() {
-                        eprintln!("[FileSrc] Failed to push sample");
-                        break;
+                while producer.slots() >= target_channels && idx < final_samples.len() {
+                    let ret = producer.write_chunk(target_channels);
+                    match ret {
+                        Ok(mut chunk) => {
+                            let (first, second) = chunk.as_mut_slices();
+                            let mid = first.len();
+                            first.copy_from_slice(&final_samples[idx..(idx + mid)]);
+                            second.copy_from_slice(
+                                &final_samples[(idx + mid)..(idx + target_channels)],
+                            );
+                            chunk.commit_all();
+                        }
+                        Err(err) => {
+                            println!("[FileSrc] Failed to push sample: {}", err);
+                            break;
+                        }
                     }
-                    idx += 1;
+
+                    idx += target_channels;
                 }
 
                 // Sleep to avoid busy-waiting

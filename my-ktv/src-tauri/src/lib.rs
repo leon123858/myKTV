@@ -70,8 +70,7 @@ fn play_audio_file(
         return Err(format!("File not found: {}", path));
     }
 
-    let file_src = FileSrc::new(file_path, 48000, 2);
-    let mut src_node = AudioNodeEnum::FileSrc(file_src);
+    let mut src_node = FileSrc::init();
 
     // Connect to speaker if available
     if let Some(ref mut dest) = state.speaker_dest {
@@ -81,21 +80,32 @@ fn play_audio_file(
             println!("[Play] Started speaker");
         }
 
+        // set src node config
+        let dest_node = match dest {
+            AudioNodeEnum::SpeakerDest(dest) => dest,
+            _ => return Err("Speaker not available".to_string()),
+        };
+        src_node.set_config(
+            file_path,
+            dest_node.config.stream_config.sample_rate,
+            dest_node.config.stream_config.channels.into(),
+        );
+        let mut src = AudioNodeEnum::FileSrc(src_node);
+
         // Connect source to destination
-        connect(&mut src_node, dest).map_err(|e| format!("Connection failed: {}", e))?;
+        connect(&mut src, dest).map_err(|e| format!("Connection failed: {}", e))?;
         println!("[Play] Connected file source to speaker");
+
+        src.start();
+        println!("[Play] Started playback");
+
+        state.file_src = Some(src);
+        state.current_file = Some(path.clone());
+
+        return Ok(format!("Playing: {}", path));
     } else {
         return Err("Speaker not available".to_string());
     }
-
-    // Start playback
-    src_node.start();
-    println!("[Play] Started playback");
-
-    state.file_src = Some(src_node);
-    state.current_file = Some(path.clone());
-
-    Ok(format!("Playing: {}", path))
 }
 
 #[tauri::command]
