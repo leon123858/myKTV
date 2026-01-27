@@ -142,17 +142,108 @@ button:disabled {
   margin: 0.5em 0;
 }
 
+/* Karaoke-specific styles */
+.karaoke-card {
+  background: linear-gradient(135deg, rgba(124, 58, 237, 0.1) 0%, rgba(236, 72, 153, 0.1) 100%);
+  border: 1px solid rgba(236, 72, 153, 0.3);
+}
+
+.karaoke-info {
+  color: rgba(255, 255, 255, 0.7);
+  margin-bottom: 1.5em;
+}
+
+.btn-karaoke-start {
+  background: linear-gradient(135deg, #ec4899 0%, #8b5cf6 100%);
+  color: white;
+}
+
+.btn-karaoke-start:hover:not(:disabled) {
+  transform: translateY(-2px);
+  box-shadow: 0 5px 15px rgba(236, 72, 153, 0.4);
+}
+
+.btn-karaoke-stop {
+  background: linear-gradient(135deg, #f59e0b 0%, #ef4444 100%);
+  color: white;
+}
+
+.btn-karaoke-stop:hover:not(:disabled) {
+  transform: translateY(-2px);
+  box-shadow: 0 5px 15px rgba(239, 68, 68, 0.4);
+}
+
+.karaoke-status {
+  margin-top: 1.5em;
+  padding: 1em;
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: 8px;
+  display: flex;
+  justify-content: space-around;
+  gap: 1em;
+}
+
+.karaoke-status p {
+  margin: 0;
+  font-size: 0.95em;
+}
+
+/* Microphone test styles */
+.mic-test-card {
+  background: linear-gradient(135deg, rgba(16, 185, 129, 0.1) 0%, rgba(5, 150, 105, 0.1) 100%);
+  border: 1px solid rgba(16, 185, 129, 0.3);
+}
+
+.mic-test-info {
+  color: rgba(255, 255, 255, 0.7);
+  margin-bottom: 1.5em;
+}
+
+.btn-mic-start {
+  background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+  color: white;
+}
+
+.btn-mic-start:hover:not(:disabled) {
+  transform: translateY(-2px);
+  box-shadow: 0 5px 15px rgba(16, 185, 129, 0.4);
+}
+
+.btn-mic-stop {
+  background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
+  color: white;
+}
+
+.btn-mic-stop:hover:not(:disabled) {
+  transform: translateY(-2px);
+  box-shadow: 0 5px 15px rgba(217, 119, 6, 0.4);
+}
+
+.mic-test-status {
+  margin-top: 1.5em;
+  padding: 1em;
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: 8px;
+}
+
+.mic-test-status p {
+  margin: 0;
+  font-size: 0.95em;
+}
+
+
+
 @media (prefers-color-scheme: light) {
   :root {
     color: #213547;
     background-color: #ffffff;
   }
-  
+
   .card {
     background: rgba(0, 0, 0, 0.02);
     border: 1px solid rgba(0, 0, 0, 0.1);
   }
-  
+
   .file-info {
     background: rgba(0, 0, 0, 0.05);
   }

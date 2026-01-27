@@ -6,6 +6,8 @@ function App() {
   const [currentFile, setCurrentFile] = useState<string>("No file selected");
   const [statusMsg, setStatusMsg] = useState<string>("");
   const [isPlaying, setIsPlaying] = useState<boolean>(false);
+  const [isKaraoke, setIsKaraoke] = useState<boolean>(false);
+  const [isMicOnly, setIsMicOnly] = useState<boolean>(false);
 
   async function handleUpload() {
     try {
@@ -43,6 +45,53 @@ function App() {
     }
   }
 
+  async function handleStartMic() {
+    try {
+      const result = await invoke<string>("start_mic_only");
+      setStatusMsg(result);
+      setIsMicOnly(true);
+    } catch (error) {
+      setStatusMsg(`Mic start failed: ${error}`);
+      setIsMicOnly(false);
+    }
+  }
+
+  async function handleStopMic() {
+    try {
+      const result = await invoke<string>("stop_mic");
+      setStatusMsg(result);
+      setIsMicOnly(false);
+    } catch (error) {
+      setStatusMsg(`Mic stop failed: ${error}`);
+    }
+  }
+
+  async function handleStartKaraoke() {
+    if (currentFile === "No file selected") {
+      setStatusMsg("Please select a music file first!");
+      return;
+    }
+
+    try {
+      const result = await invoke<string>("start_karaoke", { path: currentFile });
+      setStatusMsg(result);
+      setIsKaraoke(true);
+    } catch (error) {
+      setStatusMsg(`Karaoke start failed: ${error}`);
+      setIsKaraoke(false);
+    }
+  }
+
+  async function handleStopKaraoke() {
+    try {
+      const result = await invoke<string>("stop_karaoke");
+      setStatusMsg(result);
+      setIsKaraoke(false);
+    } catch (error) {
+      setStatusMsg(`Karaoke stop failed: ${error}`);
+    }
+  }
+
   return (
     <main className="container">
       <h1>My KTV - Audio Player</h1>
@@ -62,7 +111,7 @@ function App() {
 
           <button
             onClick={handlePlay}
-            disabled={currentFile === "No file selected" || isPlaying}
+            disabled={currentFile === "No file selected" || isPlaying || isKaraoke}
             className="btn-play"
           >
             ▶️ Play
@@ -84,9 +133,68 @@ function App() {
         )}
       </div>
 
+      <div className="card karaoke-card">
+        <h2>🎤 Karaoke Mode</h2>
+        <p className="karaoke-info">
+          Mix background music with microphone input for singing along!
+        </p>
+
+        <div className="button-group">
+          <button
+            onClick={handleStartKaraoke}
+            disabled={currentFile === "No file selected" || isKaraoke || isPlaying}
+            className="btn-karaoke-start"
+          >
+            🎤 Start Karaoke
+          </button>
+
+          <button
+            onClick={handleStopKaraoke}
+            disabled={!isKaraoke}
+            className="btn-karaoke-stop"
+          >
+            ⏹️ Stop Karaoke
+          </button>
+        </div>
+
+        <div className="karaoke-status">
+          <p><strong>Music:</strong> {isKaraoke ? "🎵 Playing" : "⏸️ Stopped"}</p>
+          <p><strong>Microphone:</strong> {isKaraoke ? "🎤 Active" : "🔇 Inactive"}</p>
+        </div>
+      </div>
+
+      <div className="card mic-test-card">
+        <h2>🎙️ Microphone Test</h2>
+        <p className="mic-test-info">
+          Test your microphone alone without background music
+        </p>
+
+        <div className="button-group">
+          <button
+            onClick={handleStartMic}
+            disabled={isMicOnly || isKaraoke || isPlaying}
+            className="btn-mic-start"
+          >
+            🎙️ Start Mic
+          </button>
+
+          <button
+            onClick={handleStopMic}
+            disabled={!isMicOnly}
+            className="btn-mic-stop"
+          >
+            ⏹️ Stop Mic
+          </button>
+        </div>
+
+        <div className="mic-test-status">
+          <p><strong>Status:</strong> {isMicOnly ? "🎙️ Mic Active" : "🔇 Mic Inactive"}</p>
+        </div>
+      </div>
+
       <div className="info">
         <p>Supported formats: MP3, WAV, FLAC, OGG, M4A</p>
-        <p>Status: {isPlaying ? "🔊 Playing" : "⏸️ Stopped"}</p>
+        <p>Status: {isPlaying ? "🔊 Playing" : isKaraoke ? "🎤 Karaoke Mode" : isMicOnly ? "🎙️ Mic Test" : "⏸️ Stopped"}</p>
       </div>
     </main>
   );

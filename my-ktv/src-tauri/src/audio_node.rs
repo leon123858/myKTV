@@ -7,6 +7,7 @@
 pub mod fake_audio_wave_src;
 pub mod file_src;
 pub mod mic_src;
+pub mod mixer;
 mod node_const;
 pub mod speaker_dest;
 mod utils;
@@ -14,6 +15,7 @@ mod utils;
 use crate::audio_node::fake_audio_wave_src::FakeAudioWaveSRC;
 use crate::audio_node::file_src::FileSrc;
 use crate::audio_node::mic_src::MicSrc;
+use crate::audio_node::mixer::Mixer;
 use crate::audio_node::speaker_dest::SpeakerDest;
 use rtrb::Producer;
 
@@ -21,6 +23,7 @@ use rtrb::Producer;
 pub enum AudioNodeType {
     SOURCE,
     GAIN,
+    MIXER,
     DESTINATION,
 }
 #[derive(Clone, Copy, Debug)]
@@ -35,6 +38,7 @@ pub enum AudioNodeEnum {
     FileSrc(FileSrc),
     SpeakerDest(SpeakerDest),
     MicSrc(MicSrc),
+    Mixer(Mixer),
 }
 
 pub trait AudioNode {
@@ -56,6 +60,7 @@ impl AudioNode for AudioNodeEnum {
             AudioNodeEnum::FileSrc(node) => node.start(),
             AudioNodeEnum::SpeakerDest(node) => node.start(),
             AudioNodeEnum::MicSrc(node) => node.start(),
+            AudioNodeEnum::Mixer(node) => node.start(),
         }
     }
 
@@ -65,6 +70,7 @@ impl AudioNode for AudioNodeEnum {
             AudioNodeEnum::FileSrc(node) => node.stop(),
             AudioNodeEnum::SpeakerDest(node) => node.stop(),
             AudioNodeEnum::MicSrc(node) => node.stop(),
+            AudioNodeEnum::Mixer(node) => node.stop(),
         }
     }
 
@@ -74,6 +80,7 @@ impl AudioNode for AudioNodeEnum {
             AudioNodeEnum::FileSrc(node) => node.get_type(),
             AudioNodeEnum::SpeakerDest(node) => node.get_type(),
             AudioNodeEnum::MicSrc(node) => node.get_type(),
+            AudioNodeEnum::Mixer(node) => node.get_type(),
         }
     }
 
@@ -83,6 +90,7 @@ impl AudioNode for AudioNodeEnum {
             AudioNodeEnum::FileSrc(node) => node.get_state(),
             AudioNodeEnum::SpeakerDest(node) => node.get_state(),
             AudioNodeEnum::MicSrc(node) => node.get_state(),
+            AudioNodeEnum::Mixer(node) => node.get_state(),
         }
     }
 }
@@ -111,8 +119,42 @@ pub fn connect(source: &mut AudioNodeEnum, dest: &mut AudioNodeEnum) -> Result<(
             )
         }
 
+        // Mixer -> Destination connections
+        (AudioNodeEnum::Mixer(mixer_inner), AudioNodeEnum::SpeakerDest(dest_inner)) => {
+            transfer_producer(
+                &mut mixer_inner.audio_producer,
+                &mut dest_inner.audio_producer,
+            )
+        }
+
+        // Source -> Mixer connections (using input slot)
+        (AudioNodeEnum::FileSrc(src_inner), AudioNodeEnum::Mixer(mixer_inner)) => {
+            get_producer_from_mixer(&mut src_inner.audio_producer, mixer_inner)
+        }
+
+        (AudioNodeEnum::MicSrc(src_inner), AudioNodeEnum::Mixer(mixer_inner)) => {
+            get_producer_from_mixer(&mut src_inner.audio_producer, mixer_inner)
+        }
+
+        (AudioNodeEnum::FakeAudioWaveSRC(src_inner), AudioNodeEnum::Mixer(mixer_inner)) => {
+            get_producer_from_mixer(&mut src_inner.audio_producer, mixer_inner)
+        }
+
         _ => Err("no supported connection".to_string()),
     }
+}
+
+fn get_producer_from_mixer(
+    src_producer_slot: &mut Option<Producer<f32>>,
+    mixer: &mut Mixer,
+) -> Result<(), String> {
+    // Get a new input producer from the mixer
+    let mixer_input_producer = mixer.add_input();
+
+    // Transfer it to the source node
+    *src_producer_slot = Some(mixer_input_producer);
+
+    Ok(())
 }
 
 fn transfer_producer(

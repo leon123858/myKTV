@@ -163,7 +163,7 @@ where
 
     move |data: &[T], _: &cpal::InputCallbackInfo| {
         if producer.is_full() {
-            println!("[HAL] Buffer full");
+            // println!("[HAL] Buffer full");
             return;
         }
 
