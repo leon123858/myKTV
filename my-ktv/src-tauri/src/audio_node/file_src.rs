@@ -14,6 +14,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::thread;
 use std::thread::JoinHandle;
+use rubato::{Resampler, SincFixedIn, SincInterpolationParameters, SincInterpolationType, WindowFunction};
 
 pub struct FileSrc {
     pub state: AudioNodeState,
@@ -107,13 +108,16 @@ impl AudioNode for FileSrc {
             let samples: Vec<f32> = source.convert_samples().collect();
             println!("[FileSrc] Loaded {} samples", samples.len());
 
+            let num_frames = samples.len() / source_channels;
+            let resample_rate = target_sample_rate as f64 / source_sample_rate as f64;
+            let mut wave_in: Vec<Vec<f32>> = vec![vec![0.0; num_frames]; source_channels];
+            for (i, &sample) in samples.iter().enumerate() {
+                wave_in[i % source_channels][i / source_channels] = sample;
+            }
+
             // Resample if needed
             let resampled_samples = if source_sample_rate != target_sample_rate {
                 println!("[FileSrc] Resampling required");
-                use rubato::{
-                    Resampler, SincFixedIn, SincInterpolationParameters, SincInterpolationType,
-                    WindowFunction,
-                };
 
                 let params = SincInterpolationParameters {
                     sinc_len: 256,
@@ -124,42 +128,28 @@ impl AudioNode for FileSrc {
                 };
 
                 let mut resampler = SincFixedIn::<f32>::new(
-                    target_sample_rate as f64 / source_sample_rate as f64,
+                    resample_rate,
                     2.0,
                     params,
-                    samples.len() / source_channels as usize,
-                    source_channels as usize,
+                    num_frames,
+                    source_channels,
                 )
                 .expect("Failed to create resampler");
 
-                // Deinterleave samples
-                let mut input_channels: Vec<Vec<f32>> = vec![Vec::new(); source_channels as usize];
-                for (i, sample) in samples.iter().enumerate() {
-                    input_channels[i % source_channels as usize].push(*sample);
-                }
+                let mut wave_out: Vec<Vec<f32>> = vec![Vec::with_capacity(resampler.output_frames_max()); source_channels];
 
-                // Resample each channel
-                let resampled_channels = match resampler.process(&input_channels, None) {
-                    Ok(output) => output,
+                let ret = Resampler::process_into_buffer(&mut resampler,&mut wave_in,&mut wave_out, None);
+                match ret {
+                    Ok((_read, written)) => {
+                        println!("[FileSrc] Wrote {} out of {} channels", written, written);
+                    },
                     Err(e) => {
-                        eprintln!("[FileSrc] Resampling failed: {}", e);
-                        return producer;
-                    }
-                };
-
-                // Interleave resampled samples
-                let mut resampled = Vec::new();
-
-                for i in 0..resampled_channels[0].len() {
-                    for channel in &resampled_channels {
-                        resampled.push(channel[i]);
+                        eprintln!("[FileSrc] Failed to process resampler: {}", e);
                     }
                 }
-
-                println!("[FileSrc] Resampled to {} samples", resampled.len());
-                resampled
+                wave_out
             } else {
-                samples
+                wave_in
             };
 
             // Handle channel conversion if needed
@@ -169,17 +159,18 @@ impl AudioNode for FileSrc {
 
                 if source_channels == 1 {
                     // Mono to stereo: duplicate each sample
-                    for sample in &resampled_samples {
+                    let src_ch = &resampled_samples[0];
+                    for sample in src_ch {
                         for _ in 0..target_channels {
-                            converted.push(*sample);
+                            converted.push(sample);
                         }
                     }
                 } else if source_channels > 1 {
-                    // Stereo to mono: average pairs
-                    for chunk in resampled_samples.chunks(source_channels) {
-                        let avg = chunk.iter().sum::<f32>() / chunk.len() as f32;
+                    // Stereo to mono: use first ch
+                    let src_ch = &resampled_samples[0];
+                    for sample in src_ch {
                         for _ in 0..target_channels {
-                            converted.push(avg);
+                            converted.push(sample);
                         }
                     }
                 } else {
@@ -193,7 +184,14 @@ impl AudioNode for FileSrc {
                 println!("[FileSrc] Converted to {} samples", converted.len());
                 converted
             } else {
-                resampled_samples
+                let mut converted = Vec::new();
+                let first_ch = &resampled_samples[0];
+                for idx in 0..first_ch.len() {
+                    for chi in 0..source_channels {
+                        converted.push(&resampled_samples[chi][idx]);
+                    }
+                }
+                converted
             };
 
             // Stream samples to the producer
@@ -207,10 +205,16 @@ impl AudioNode for FileSrc {
                         Ok(mut chunk) => {
                             let (first, second) = chunk.as_mut_slices();
                             let mid = first.len();
-                            first.copy_from_slice(&final_samples[idx..(idx + mid)]);
-                            second.copy_from_slice(
-                                &final_samples[(idx + mid)..(idx + target_channels)],
-                            );
+                            let mut cursor = 0;
+                            for i in idx..(idx + mid) {
+                                first[cursor] = *final_samples[i];
+                                cursor += 1;
+                            }
+                            cursor = 0;
+                            for i in (idx + mid)..(idx + target_channels) {
+                                second[cursor] = *final_samples[i];
+                                cursor += 1;
+                            }
                             chunk.commit_all();
                         }
                         Err(err) => {
@@ -224,6 +228,7 @@ impl AudioNode for FileSrc {
 
                 // Sleep to avoid busy-waiting
                 if idx < final_samples.len() {
+                    println!("[FileSrc] sleep to wait buffer");
                     thread::sleep(std::time::Duration::from_millis(sleep_ms));
                 }
             }

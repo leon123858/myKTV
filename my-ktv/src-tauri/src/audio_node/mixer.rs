@@ -6,6 +6,7 @@
 
 use crate::audio_node::node_const::RING_BUFFER_CAPACITY;
 use crate::audio_node::{AudioNode, AudioNodeState, AudioNodeType};
+use thread_priority::*;
 use rtrb::{Consumer, Producer, RingBuffer};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
@@ -81,6 +82,7 @@ impl AudioNode for Mixer {
 
         self.mixer_thread = Some(thread::spawn(move || {
             println!("[Mixer] Mixer Thread Started");
+            assert!(set_current_thread_priority(ThreadPriority::Max).is_ok());
 
             while keep_running.load(Ordering::Relaxed) {
                 let mut consumers = input_consumers.lock().unwrap();
@@ -88,72 +90,38 @@ impl AudioNode for Mixer {
                 // Process in very small chunks for low latency
                 let chunk_size = 64;
 
-                // Check if we have space in output
-                if output_producer.slots() < chunk_size {
-                    drop(consumers);
-                    continue;
-                }
-
                 // Find maximum available samples (process as much as we can)
                 let max_available = consumers.iter().map(|c| c.slots()).max().unwrap_or(0);
-
-                if max_available == 0 {
+                let samples_to_process = max_available.min(chunk_size);
+                if output_producer.slots() < samples_to_process || samples_to_process == 0 {
+                    // println!("[Mixer] Mixer Thread Stopped {samples_to_process}");
                     drop(consumers);
                     continue;
                 }
 
-                let samples_to_process = max_available.min(chunk_size);
-
                 // Mix samples from all inputs
-                // CRITICAL CHANGE: Process each input independently
-                let mut mixed_samples = vec![0.0f32; samples_to_process];
-                let mut active_inputs_count = 0;
-
-                for consumer in consumers.iter_mut() {
-                    let available = consumer.slots();
-                    if available == 0 {
-                        continue; // Skip inputs with no data
-                    }
-
-                    let to_read = available.min(samples_to_process);
-
-                    match consumer.read_chunk(to_read) {
-                        Ok(chunk) => {
-                            let (first, second) = chunk.as_slices();
-
-                            // Add samples from this input
-                            for (i, &sample) in first.iter().enumerate() {
-                                mixed_samples[i] += sample;
-                            }
-                            for (i, &sample) in second.iter().enumerate() {
-                                mixed_samples[first.len() + i] += sample;
-                            }
-
-                            chunk.commit_all();
-                            active_inputs_count += 1;
-                        }
-                        Err(_) => {
-                            // If we can't read from this input, skip it
+                for _round in 0..samples_to_process {
+                    let mut active_inputs_count = 0;
+                    let mut sample: f32 = 0.0;
+                    for consumer in consumers.iter_mut() {
+                        if consumer.is_empty() {
                             continue;
+                        } else {
+                            active_inputs_count += 1;
+                            sample += consumer.pop().unwrap();
                         }
                     }
-                }
-
-                // Normalize by number of ACTIVE inputs to prevent clipping
-                if active_inputs_count > 0 {
-                    let scale = 1.0 / active_inputs_count as f32;
-                    for sample in mixed_samples.iter_mut() {
-                        *sample *= scale;
-                        // Soft clipping
-                        *sample = sample.max(-1.0).min(1.0);
+                    // linear mix with clip
+                    if active_inputs_count > 0 {
+                        sample /= active_inputs_count as f32;
+                        sample = sample.max(-1.0).min(1.0);
+                    } else {
+                        sample = 0.0f32;
                     }
-                }
 
-                // Write mixed samples to output
-                for sample in mixed_samples {
+                    // push
                     if output_producer.push(sample).is_err() {
-                        eprintln!("[Mixer] Failed to push sample to output");
-                        break;
+                        println!("[Mixer] Mixer Thread push error");
                     }
                 }
 

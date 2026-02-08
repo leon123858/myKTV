@@ -108,9 +108,9 @@ fn play_audio_file(
         state.file_src = Some(src);
         state.current_file = Some(path.clone());
 
-        return Ok(format!("Playing: {}", path));
+        Ok(format!("Playing: {}", path))
     } else {
-        return Err("Speaker not available".to_string());
+        Err("Speaker not available".to_string())
     }
 }
 
@@ -147,6 +147,9 @@ fn start_mic_only(audio_state: State<'_, Mutex<AudioState>>) -> Result<String, S
     if let Some(ref mut mic) = state.mic_src {
         mic.stop();
     }
+    if let Some(ref mut mixer) = state.mixer {
+        mixer.stop();
+    }
 
     // Start speaker if not running
     if let Some(ref mut dest) = state.speaker_dest {
@@ -168,14 +171,21 @@ fn start_mic_only(audio_state: State<'_, Mutex<AudioState>>) -> Result<String, S
         // Wrap in enum
         let mut mic_src_enum = AudioNodeEnum::MicSrc(mic_src);
 
-        // Connect: mic_src -> speaker
-        connect(&mut mic_src_enum, dest)
+        // new mixer node
+        let mixer = Mixer::new(0);
+        let mut mixer_enum = AudioNodeEnum::Mixer(mixer);
+
+        // Connect
+        connect(&mut mic_src_enum, &mut mixer_enum)
             .map_err(|e| format!("Mic->Speaker connection failed: {}", e))?;
+        connect(&mut mixer_enum, dest).map_err(|e| format!("Mic->Speaker connection failed: {}", e))?;
         println!("[Mic] Connected microphone to speaker");
 
         // Start microphone
         mic_src_enum.start();
         println!("[Mic] Started microphone");
+        mixer_enum.start();
+        println!("[Mic] Started mixer");
 
         // Store in state
         state.mic_src = Some(mic_src_enum);
