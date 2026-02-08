@@ -1,4 +1,4 @@
-use crate::audio_node::node_const::RING_BUFFER_CAPACITY;
+use crate::audio_node::node_const::{PULL_RING_BUFFER_CAPACITY, PUSH_RING_BUFFER_CAPACITY};
 use crate::audio_node::utils::{generate_output_resolve_config, IOStreamConfig};
 use crate::audio_node::{AudioNode, AudioNodeState, AudioNodeType};
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
@@ -36,7 +36,8 @@ impl AudioNode for SpeakerDest {
         println!("[HAL] Negotiated Output Config: {:?}", output_config);
 
         // 建立 Lock-free Ring Buffer
-        let (producer, consumer) = RingBuffer::<f32>::new(RING_BUFFER_CAPACITY);
+        // 啟動節點時，前面的 node 就會不斷推 zero data 到這裡，所以該 buffer 的長度就會是 delay，因此不要太長
+        let (producer, consumer) = RingBuffer::<f32>::new(PULL_RING_BUFFER_CAPACITY);
 
         println!("[HAL] New Producer Size: {:?}", producer.slots());
 
@@ -142,6 +143,4 @@ where
             data[should_fill_zero_start..].fill(T::EQUILIBRIUM);
         }
     }
-
-
 }

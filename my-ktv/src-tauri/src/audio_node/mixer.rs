@@ -4,7 +4,7 @@
  * @ Date:      20260128
  */
 
-use crate::audio_node::node_const::RING_BUFFER_CAPACITY;
+use crate::audio_node::node_const::PUSH_RING_BUFFER_CAPACITY;
 use crate::audio_node::{AudioNode, AudioNodeState, AudioNodeType};
 use thread_priority::*;
 use rtrb::{Consumer, Producer, RingBuffer};
@@ -30,7 +30,7 @@ impl Mixer {
 
         // Create ring buffers for each input
         for _ in 0..num_inputs {
-            let (producer, consumer) = RingBuffer::<f32>::new(RING_BUFFER_CAPACITY);
+            let (producer, consumer) = RingBuffer::<f32>::new(PUSH_RING_BUFFER_CAPACITY);
             input_producers.push(producer);
             input_consumers.push(consumer);
         }
@@ -47,7 +47,7 @@ impl Mixer {
 
     /// Add a new input channel dynamically
     pub fn add_input(&mut self) -> Producer<f32> {
-        let (producer, consumer) = RingBuffer::<f32>::new(RING_BUFFER_CAPACITY);
+        let (producer, consumer) = RingBuffer::<f32>::new(PUSH_RING_BUFFER_CAPACITY);
 
         let mut consumers = self.input_consumers.lock().unwrap();
         consumers.push(consumer);
@@ -88,14 +88,10 @@ impl AudioNode for Mixer {
                 let mut consumers = input_consumers.lock().unwrap();
 
                 // Process in very small chunks for low latency
-                let chunk_size = 64;
+                let samples_to_process = 64;
 
-                // Find maximum available samples (process as much as we can)
-                let max_available = consumers.iter().map(|c| c.slots()).max().unwrap_or(0);
-                let samples_to_process = max_available.min(chunk_size);
-                if output_producer.slots() < samples_to_process || samples_to_process == 0 {
-                    // println!("[Mixer] Mixer Thread Stopped {samples_to_process}");
-                    drop(consumers);
+                if output_producer.slots() < samples_to_process {
+                    // println!("[Mixer] Next Producer Full");
                     continue;
                 }
 

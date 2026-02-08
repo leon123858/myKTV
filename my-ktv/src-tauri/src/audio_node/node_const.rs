@@ -1,4 +1,5 @@
 pub const MOCK_AUDIO_SAMPLE_HZ: f32 = 440.0;
 pub const MOCK_AUDIO_SAMPLE_RATE: f32 = 48000.0;
-pub const RING_BUFFER_CAPACITY: usize = 65536 * 4; // 256B
+pub const PUSH_RING_BUFFER_CAPACITY: usize = 65536 * 4;
+pub const PULL_RING_BUFFER_CAPACITY: usize = 1024;
 pub const RESAMPLE_BUFFER_CAPACITY: usize = 1024;

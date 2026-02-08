@@ -4,7 +4,7 @@ use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use cpal::{FromSample, Sample, SampleFormat, Stream, StreamConfig, StreamError};
 use rtrb::{Consumer, Producer, RingBuffer};
 use rubato::{Resampler, SincFixedIn, SincInterpolationParameters, SincInterpolationType, WindowFunction};
-use crate::audio_node::node_const::{RESAMPLE_BUFFER_CAPACITY, RING_BUFFER_CAPACITY};
+use crate::audio_node::node_const::{RESAMPLE_BUFFER_CAPACITY, PUSH_RING_BUFFER_CAPACITY};
 
 pub struct MicSrc {
     pub state: AudioNodeState,
@@ -39,7 +39,7 @@ impl AudioNode for MicSrc {
         println!("[HAL] Negotiated Input Config: {:?}", input_config);
 
         // create mic cache buffer for resample usage
-        let (producer, consumer) = RingBuffer::<f32>::new(RING_BUFFER_CAPACITY);
+        let (producer, consumer) = RingBuffer::<f32>::new(PUSH_RING_BUFFER_CAPACITY);
 
         Self {
             state: AudioNodeState::INITIALIZED,
