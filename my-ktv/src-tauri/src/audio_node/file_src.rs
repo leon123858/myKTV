@@ -4,9 +4,14 @@
  * @ Date:      20260127
  */
 
+use crate::audio_node::node_const::{
+    RESAMPLE_BUFFER_CAPACITY, RESAMPLE_INNER_CACHE_BUFFER_CAPACITY,
+};
+use crate::audio_node::utils::ResamplingHandler;
 use crate::audio_node::{AudioNode, AudioNodeState, AudioNodeType};
+use cpal::{BufferSize, ChannelCount, StreamConfig};
 use rodio::Source;
-use rtrb::Producer;
+use rtrb::{Producer, RingBuffer};
 use std::fs::File;
 use std::io::BufReader;
 use std::path::PathBuf;
@@ -14,7 +19,6 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::thread;
 use std::thread::JoinHandle;
-use rubato::{Resampler, SincFixedIn, SincInterpolationParameters, SincInterpolationType, WindowFunction};
 
 pub struct FileSrc {
     pub state: AudioNodeState,
@@ -52,7 +56,7 @@ impl AudioNode for FileSrc {
 
     fn start(&mut self) {
         let sleep_ms = self.sleep_ms;
-        let mut producer = match self.audio_producer.take() {
+        let producer = match self.audio_producer.take() {
             Some(p) => p,
             None => panic!("FileSrc: cannot start audio node - no producer"),
         };
@@ -85,7 +89,7 @@ impl AudioNode for FileSrc {
                 }
             };
 
-            let source = match rodio::Decoder::new(BufReader::new(file)) {
+            let mut source = match rodio::Decoder::new(BufReader::new(file)) {
                 Ok(s) => s,
                 Err(e) => {
                     eprintln!("[FileSrc] Failed to decode file: {}", e);
@@ -104,141 +108,49 @@ impl AudioNode for FileSrc {
                 target_sample_rate, target_channels
             );
 
+            let src_cfg = StreamConfig {
+                channels: source_channels as ChannelCount,
+                sample_rate: source_sample_rate,
+                buffer_size: BufferSize::Default,
+            };
+            let trg_cfg = StreamConfig {
+                channels: target_channels as ChannelCount,
+                sample_rate: target_sample_rate,
+                buffer_size: BufferSize::Default,
+            };
+            let chunk_size = RESAMPLE_BUFFER_CAPACITY * source_channels;
+            let (resample_producer, resample_consumer) =
+                RingBuffer::<f32>::new(RESAMPLE_INNER_CACHE_BUFFER_CAPACITY);
+            let mut resampler = ResamplingHandler::new(
+                producer,
+                src_cfg,
+                trg_cfg,
+                resample_producer,
+                resample_consumer,
+                chunk_size,
+            );
+            let mut data_buffer = vec![0; chunk_size];
             // Convert samples to f32 and handle resampling if needed
-            let samples: Vec<f32> = source.convert_samples().collect();
-            println!("[FileSrc] Loaded {} samples", samples.len());
-
-            let num_frames = samples.len() / source_channels;
-            let resample_rate = target_sample_rate as f64 / source_sample_rate as f64;
-            let mut wave_in: Vec<Vec<f32>> = vec![vec![0.0; num_frames]; source_channels];
-            for (i, &sample) in samples.iter().enumerate() {
-                wave_in[i % source_channels][i / source_channels] = sample;
-            }
-
-            // Resample if needed
-            let resampled_samples = if source_sample_rate != target_sample_rate {
-                println!("[FileSrc] Resampling required");
-
-                let params = SincInterpolationParameters {
-                    sinc_len: 256,
-                    f_cutoff: 0.95,
-                    interpolation: SincInterpolationType::Linear,
-                    oversampling_factor: 256,
-                    window: WindowFunction::BlackmanHarris2,
-                };
-
-                let mut resampler = SincFixedIn::<f32>::new(
-                    resample_rate,
-                    2.0,
-                    params,
-                    num_frames,
-                    source_channels,
-                )
-                .expect("Failed to create resampler");
-
-                let mut wave_out: Vec<Vec<f32>> = vec![Vec::with_capacity(resampler.output_frames_max()); source_channels];
-
-                let ret = Resampler::process_into_buffer(&mut resampler,&mut wave_in,&mut wave_out, None);
-                match ret {
-                    Ok((_read, written)) => {
-                        println!("[FileSrc] Wrote {} out of {} channels", written, written);
-                    },
-                    Err(e) => {
-                        eprintln!("[FileSrc] Failed to process resampler: {}", e);
-                    }
+            let mut is_end = false;
+            while keep_running.load(Ordering::Relaxed) {
+                if is_end {
+                    break;
                 }
-                wave_out
-            } else {
-                wave_in
-            };
-
-            // Handle channel conversion if needed
-            let final_samples = if source_channels != target_channels {
-                println!("[FileSrc] Channel conversion required");
-                let mut converted = Vec::new();
-
-                if source_channels == 1 {
-                    // Mono to stereo: duplicate each sample
-                    let src_ch = &resampled_samples[0];
-                    for sample in src_ch {
-                        for _ in 0..target_channels {
-                            converted.push(sample);
-                        }
-                    }
-                } else if source_channels > 1 {
-                    // Stereo to mono: use first ch
-                    let src_ch = &resampled_samples[0];
-                    for sample in src_ch {
-                        for _ in 0..target_channels {
-                            converted.push(sample);
-                        }
-                    }
-                } else {
-                    eprintln!(
-                        "[FileSrc] Unsupported channel conversion: {} -> {}",
-                        source_channels, target_channels
-                    );
-                    assert!(false, "Unsupported channel conversion");
-                }
-
-                println!("[FileSrc] Converted to {} samples", converted.len());
-                converted
-            } else {
-                let mut converted = Vec::new();
-                let first_ch = &resampled_samples[0];
-                for idx in 0..first_ch.len() {
-                    for chi in 0..source_channels {
-                        converted.push(&resampled_samples[chi][idx]);
-                    }
-                }
-                converted
-            };
-
-            // Stream samples to the producer
-            println!("[FileSrc] Starting playback");
-            let mut idx = 0;
-            while keep_running.load(Ordering::Relaxed) && idx < final_samples.len() {
-                // Try to push samples in chunks
-                while producer.slots() >= target_channels && idx < final_samples.len() {
-                    let ret = producer.write_chunk(target_channels);
-                    match ret {
-                        Ok(mut chunk) => {
-                            let (first, second) = chunk.as_mut_slices();
-                            let mid = first.len();
-                            let mut cursor = 0;
-                            for i in idx..(idx + mid) {
-                                first[cursor] = *final_samples[i];
-                                cursor += 1;
-                            }
-                            cursor = 0;
-                            for i in (idx + mid)..(idx + target_channels) {
-                                second[cursor] = *final_samples[i];
-                                cursor += 1;
-                            }
-                            chunk.commit_all();
-                        }
-                        Err(err) => {
-                            println!("[FileSrc] Failed to push sample: {}", err);
-                            break;
-                        }
-                    }
-
-                    idx += target_channels;
-                }
-
-                // Sleep to avoid busy-waiting
-                if idx < final_samples.len() {
-                    println!("[FileSrc] sleep to wait buffer");
+                while !resampler.check_must_no_loss_data(chunk_size) {
                     thread::sleep(std::time::Duration::from_millis(sleep_ms));
                 }
+                for cur_chunk_size in 0..chunk_size {
+                    let sample_option = source.next();
+                    if let Some(sample) = sample_option {
+                        data_buffer[cur_chunk_size] = sample;
+                    } else {
+                        is_end = true;
+                        data_buffer[cur_chunk_size] = 0;
+                    }
+                }
+                resampler.process_packet(&data_buffer);
             }
-
-            println!(
-                "[FileSrc] Playback finished or stopped (played {} samples)",
-                idx
-            );
-            println!("[FileSrc] Producer Thread Stopped");
-            producer
+            resampler.producer
         }));
 
         self.state = AudioNodeState::RUNNING;

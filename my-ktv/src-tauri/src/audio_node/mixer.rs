@@ -6,12 +6,12 @@
 
 use crate::audio_node::node_const::PUSH_RING_BUFFER_CAPACITY;
 use crate::audio_node::{AudioNode, AudioNodeState, AudioNodeType};
-use thread_priority::*;
 use rtrb::{Consumer, Producer, RingBuffer};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::thread::JoinHandle;
+use thread_priority::*;
 
 pub struct Mixer {
     pub state: AudioNodeState,

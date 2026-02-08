@@ -98,10 +98,16 @@ fn play_audio_file(
         );
         let mut src = AudioNodeEnum::FileSrc(src_node);
 
+        // new mixer node (dest node buffer 太小，會掉資料，一定要墊一個 push node)
+        let mixer = Mixer::new(0);
+        let mut mixer_enum = AudioNodeEnum::Mixer(mixer);
+
         // Connect source to destination
-        connect(&mut src, dest).map_err(|e| format!("Connection failed: {}", e))?;
+        connect(&mut src, &mut mixer_enum).map_err(|e| format!("Connection failed: {}", e))?;
+        connect(&mut mixer_enum, dest).map_err(|e| format!("Connection failed: {}", e))?;
         println!("[Play] Connected file source to speaker");
 
+        mixer_enum.start();
         src.start();
         println!("[Play] Started playback");
 
@@ -178,7 +184,8 @@ fn start_mic_only(audio_state: State<'_, Mutex<AudioState>>) -> Result<String, S
         // Connect
         connect(&mut mic_src_enum, &mut mixer_enum)
             .map_err(|e| format!("Mic->Speaker connection failed: {}", e))?;
-        connect(&mut mixer_enum, dest).map_err(|e| format!("Mic->Speaker connection failed: {}", e))?;
+        connect(&mut mixer_enum, dest)
+            .map_err(|e| format!("Mic->Speaker connection failed: {}", e))?;
         println!("[Mic] Connected microphone to speaker");
 
         // Start microphone
