@@ -4,6 +4,7 @@ pub mod file;
 pub mod gain;
 pub mod microphone;
 pub mod oscillator;
+pub mod resampler;
 
 pub use file::FileNode;
 pub use gain::GainNode;
