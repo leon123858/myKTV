@@ -49,6 +49,8 @@ impl FileNode {
         let channels = track.codec_params.channels.unwrap_or_default().count();
         let sample_rate = track.codec_params.sample_rate.unwrap_or(target_sample_rate);
 
+        println!("音檔採樣率: {:?}", sample_rate);
+
         // 建立 2 秒的 raw f32 緩衝
         let capacity = sample_rate as usize * channels * 2;
         let ringbuf = HeapRb::<f32>::new(capacity);

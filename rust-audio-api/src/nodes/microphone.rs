@@ -21,6 +21,8 @@ impl MicrophoneNode {
         let config: StreamConfig = supported_config.into();
         let channels = config.channels as usize;
 
+        println!("麥克風採樣率: {:?}", input_rate);
+
         // 約 1 秒的緩衝量
         let capacity = input_rate as usize * channels;
         let ringbuf = HeapRb::<f32>::new(capacity);
