@@ -1,32 +1,74 @@
-use crate::node::AudioNode;
+use crate::types::AudioUnit;
 use dasp::signal::{self, Signal};
+use ringbuf::storage::Heap;
+use ringbuf::traits::{Consumer, Observer, Producer, Split};
+use ringbuf::wrap::caching::Caching;
+use ringbuf::{HeapRb, SharedRb};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::thread;
+use std::time::Duration;
 
 pub struct OscillatorNode {
-    // dasp 提供的訊號產生器
-    signal: Box<dyn Signal<Frame = f64> + Send>,
+    consumer: Caching<Arc<SharedRb<Heap<[f32; 2]>>>, false, true>,
     gain: f32,
+    _running: Arc<AtomicBool>,
 }
 
 impl OscillatorNode {
     pub fn new(sample_rate: f64, frequency: f64) -> Self {
-        // 使用 dasp 建立一個正弦波
-        let sig = signal::rate(sample_rate).const_hz(frequency).sine();
+        // 設定 ringbuf，大概 0.5 秒的緩衝 (例如 48000 Hz => 24000)
+        let capacity = (sample_rate * 0.5) as usize;
+        let ringbuf = HeapRb::<[f32; 2]>::new(capacity);
+        let (mut producer, consumer) = ringbuf.split();
+
+        let running = Arc::new(AtomicBool::new(true));
+        let running_clone = running.clone();
+
+        thread::spawn(move || {
+            let mut sig = signal::rate(sample_rate).const_hz(frequency).sine();
+            while running_clone.load(Ordering::Relaxed) {
+                // 如果 buffer 滿了，稍微暫停一下讓 Audio Thread 消耗 (不 push，避免高 CPU 佔用)
+                if producer.is_full() {
+                    thread::sleep(Duration::from_millis(5));
+                    continue;
+                }
+
+                let sample = sig.next() as f32;
+                let frame = [sample, sample];
+                let _ = producer.try_push(frame); // 如果滿了會直接忽略 (由上方的 sleep 處理主要回壓)
+            }
+        });
+
         Self {
-            signal: Box::new(sig),
-            gain: 1.0, // 預設音量
+            consumer,
+            gain: 1.0,
+            _running: running,
         }
     }
 
     pub fn set_gain(&mut self, gain: f32) {
         self.gain = gain;
     }
+
+    /// Oscillator 是主動節點 (Source)，它不受 input 影響。
+    #[inline(always)]
+    pub fn process(&mut self, _input: Option<&AudioUnit>, output: &mut AudioUnit) {
+        for i in 0..output.len() {
+            if let Some(sample) = self.consumer.try_pop() {
+                output[i][0] = sample[0] * self.gain;
+                output[i][1] = sample[1] * self.gain;
+            } else {
+                // Buffer under-run
+                output[i][0] = 0.0;
+                output[i][1] = 0.0;
+            }
+        }
+    }
 }
 
-impl AudioNode for OscillatorNode {
-    fn process(&mut self) -> [f32; 2] {
-        // 取得下一個採樣點並套用 gain
-        let sample = (self.signal.next() as f32) * self.gain;
-        // 輸出雙聲道 (Mono 轉 Stereo)
-        [sample, sample]
+impl Drop for OscillatorNode {
+    fn drop(&mut self) {
+        self._running.store(false, Ordering::Relaxed);
     }
 }
