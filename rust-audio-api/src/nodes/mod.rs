@@ -3,12 +3,14 @@ use crate::types::AudioUnit;
 pub mod file;
 pub mod gain;
 pub mod microphone;
+pub mod mixer;
 pub mod oscillator;
 pub mod resampler;
 
 pub use file::FileNode;
 pub use gain::GainNode;
 pub use microphone::MicrophoneNode;
+pub use mixer::MixerNode;
 pub use oscillator::OscillatorNode;
 
 pub enum NodeType {
@@ -16,6 +18,7 @@ pub enum NodeType {
     Oscillator(OscillatorNode),
     Microphone(MicrophoneNode),
     File(FileNode),
+    Mixer(MixerNode),
 }
 
 impl NodeType {
@@ -29,6 +32,7 @@ impl NodeType {
             NodeType::Oscillator(node) => node.process(input, output),
             NodeType::Microphone(node) => node.process(input, output),
             NodeType::File(node) => node.process(input, output),
+            NodeType::Mixer(node) => node.process(input, output),
         }
     }
 }

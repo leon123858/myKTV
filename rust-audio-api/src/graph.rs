@@ -128,16 +128,21 @@ impl StaticGraph {
             let mut combined_input = empty_audio_unit();
             let sources = &self.inputs_map[i];
 
+            let is_mixer = matches!(self.nodes[i], NodeType::Mixer(_));
+            assert!(
+                is_mixer || sources.len() <= 1,
+                "只有 MixerNode 可以接受多個輸入！Node {} (型別非 Mixer) 卻收到了 {} 個輸入。",
+                i,
+                sources.len()
+            );
+
             let has_input = if sources.is_empty() {
                 false
             } else {
                 for &src_idx in sources {
-                    // 將 src 的 output 疊加到 combined_input
+                    // 將 src 的 output 疊加到 combined_input，利用 dasp 高效處理混音加總
                     let src_buf = &self.node_output_buffers[src_idx];
-                    for f in 0..src_buf.len() {
-                        combined_input[f][0] += src_buf[f][0];
-                        combined_input[f][1] += src_buf[f][1];
-                    }
+                    dasp::slice::add_in_place(&mut combined_input[..], &src_buf[..]);
                 }
                 true
             };
@@ -166,6 +171,7 @@ impl StaticGraph {
                         match (node, parameter) {
                             (NodeType::Gain(g), NodeParameter::Gain(val)) => g.set_gain(val),
                             (NodeType::Oscillator(o), NodeParameter::Gain(val)) => o.set_gain(val),
+                            (NodeType::Mixer(m), NodeParameter::Gain(val)) => m.set_gain(val),
                             // 若後續擴充別的屬性可以在這裡實作
                             // (NodeType::Oscillator(o), NodeParameter::Frequency(val)) => o.set_frequency(val),
                             _ => {}

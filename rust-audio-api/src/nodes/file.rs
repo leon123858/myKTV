@@ -108,7 +108,7 @@ impl FileNode {
         let ring_iter = RingIter { consumer, channels };
 
         let resampler = if sample_rate != target_sample_rate {
-            let ring_buffer = dasp::ring_buffer::Fixed::from([[0.0; 2]; 100]);
+            let ring_buffer = dasp::ring_buffer::Fixed::from([[0.0; 2]; AUDIO_UNIT_SIZE]);
             let sinc = dasp::interpolate::sinc::Sinc::new(ring_buffer);
             let converter =
                 ring_iter.from_hz_to_hz(sinc, sample_rate as f64, target_sample_rate as f64);
