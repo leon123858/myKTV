@@ -1,5 +1,6 @@
 use crate::types::AudioUnit;
 
+pub mod delay;
 pub mod file;
 pub mod gain;
 pub mod microphone;
@@ -7,6 +8,7 @@ pub mod mixer;
 pub mod oscillator;
 pub mod resampler;
 
+pub use delay::DelayNode;
 pub use file::FileNode;
 pub use gain::GainNode;
 pub use microphone::MicrophoneNode;
@@ -19,6 +21,7 @@ pub enum NodeType {
     Microphone(MicrophoneNode),
     File(FileNode),
     Mixer(MixerNode),
+    Delay(DelayNode),
 }
 
 impl NodeType {
@@ -33,6 +36,7 @@ impl NodeType {
             NodeType::Microphone(node) => node.process(input, output),
             NodeType::File(node) => node.process(input, output),
             NodeType::Mixer(node) => node.process(input, output),
+            NodeType::Delay(node) => node.process(input, output),
         }
     }
 }

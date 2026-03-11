@@ -19,6 +19,7 @@ pub enum NodeParameter {
     Gain(f32),
     Frequency(f32),
     Switch(bool),
+    DelayUnits(usize),
     // Play, Stop, etc.
 }
 
@@ -172,6 +173,7 @@ impl StaticGraph {
                             (NodeType::Gain(g), NodeParameter::Gain(val)) => g.set_gain(val),
                             (NodeType::Oscillator(o), NodeParameter::Gain(val)) => o.set_gain(val),
                             (NodeType::Mixer(m), NodeParameter::Gain(val)) => m.set_gain(val),
+                            (NodeType::Delay(d), NodeParameter::DelayUnits(val)) => d.set_delay_units(val),
                             // 若後續擴充別的屬性可以在這裡實作
                             // (NodeType::Oscillator(o), NodeParameter::Frequency(val)) => o.set_frequency(val),
                             _ => {}
