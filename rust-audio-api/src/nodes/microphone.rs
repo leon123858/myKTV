@@ -71,20 +71,19 @@ impl MicrophoneNode {
         match &mut self.resampler {
             ResamplerState::Passthrough(iter) => {
                 for i in 0..AUDIO_UNIT_SIZE {
-                    let mut frame = iter.next();
-                    frame[0] *= self.gain;
-                    frame[1] *= self.gain;
-                    output[i] = frame;
+                    output[i] = iter.next();
                 }
             }
             ResamplerState::Resampling(converter) => {
                 for i in 0..AUDIO_UNIT_SIZE {
-                    let mut frame = converter.next();
-                    frame[0] *= self.gain;
-                    frame[1] *= self.gain;
-                    output[i] = frame;
+                    output[i] = converter.next();
                 }
             }
         }
+
+        // 再透過 dasp slice 操作一次性安全疊加 gain
+        dasp::slice::map_in_place(&mut output[..], |frame| {
+            [frame[0] * self.gain, frame[1] * self.gain]
+        });
     }
 }

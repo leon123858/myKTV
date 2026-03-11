@@ -18,16 +18,11 @@ impl GainNode {
     #[inline(always)]
     pub fn process(&mut self, input: Option<&AudioUnit>, output: &mut AudioUnit) {
         if let Some(in_unit) = input {
-            for i in 0..in_unit.len() {
-                output[i][0] = in_unit[i][0] * self.gain;
-                output[i][1] = in_unit[i][1] * self.gain;
-            }
+            output.copy_from_slice(in_unit);
+            dasp::slice::map_in_place(&mut output[..], |f| [f[0] * self.gain, f[1] * self.gain]);
         } else {
             // 如果沒有上游輸入，就輸出靜音
-            for i in 0..output.len() {
-                output[i][0] = 0.0;
-                output[i][1] = 0.0;
-            }
+            dasp::slice::equilibrium(&mut output[..]);
         }
     }
 }

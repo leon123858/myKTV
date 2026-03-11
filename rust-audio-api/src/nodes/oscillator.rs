@@ -54,16 +54,13 @@ impl OscillatorNode {
     /// Oscillator 是主動節點 (Source)，它不受 input 影響。
     #[inline(always)]
     pub fn process(&mut self, _input: Option<&AudioUnit>, output: &mut AudioUnit) {
-        for i in 0..output.len() {
+        dasp::slice::map_in_place(&mut output[..], |_| {
             if let Some(sample) = self.consumer.try_pop() {
-                output[i][0] = sample[0] * self.gain;
-                output[i][1] = sample[1] * self.gain;
+                [sample[0] * self.gain, sample[1] * self.gain]
             } else {
-                // Buffer under-run
-                output[i][0] = 0.0;
-                output[i][1] = 0.0;
+                [0.0, 0.0]
             }
-        }
+        });
     }
 }
 

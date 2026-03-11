@@ -22,21 +22,18 @@ impl MixerNode {
     #[inline(always)]
     pub fn process(&mut self, input: Option<&AudioUnit>, output: &mut AudioUnit) {
         if let Some(in_unit) = input {
-            for i in 0..in_unit.len() {
-                // Apply gain
-                let l = in_unit[i][0] * self.gain;
-                let r = in_unit[i][1] * self.gain;
+            output.copy_from_slice(in_unit);
 
-                // Hard clipping limit to [-1.0, 1.0] to prevent distortion
-                output[i][0] = l.clamp(-1.0, 1.0);
-                output[i][1] = r.clamp(-1.0, 1.0);
-            }
+            // Apply gain and hard clipping limit to [-1.0, 1.0] to prevent distortion
+            dasp::slice::map_in_place(&mut output[..], |frame| {
+                [
+                    (frame[0] * self.gain).clamp(-1.0, 1.0),
+                    (frame[1] * self.gain).clamp(-1.0, 1.0),
+                ]
+            });
         } else {
             // 如果沒有上游輸入，就輸出靜音
-            for i in 0..output.len() {
-                output[i][0] = 0.0;
-                output[i][1] = 0.0;
-            }
+            dasp::slice::equilibrium(&mut output[..]);
         }
     }
 }
