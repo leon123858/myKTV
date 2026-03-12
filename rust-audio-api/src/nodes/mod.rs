@@ -15,7 +15,7 @@ pub use gain::GainNode;
 pub use microphone::MicrophoneNode;
 pub use mixer::MixerNode;
 pub use oscillator::OscillatorNode;
-pub use convolver::ConvolverNode;
+pub use convolver::{ConvolverNode, ConvolverConfig};
 
 pub enum NodeType {
     Gain(GainNode),
