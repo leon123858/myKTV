@@ -66,21 +66,80 @@ impl GraphBuilder {
         }
     }
 
-    /// 拓樸排序並生成極致效能的 StaticGraph
+    /// 拓樸排序並生成極致效能的 StaticGraph，並進行 Buffer 重用優化
     pub fn build(
         self,
         destination_id: NodeId,
         msg_receiver: Receiver<ControlMessage>,
     ) -> StaticGraph {
-        // 為了每個 Node 配置「專屬的 Output Buffer」，確保互相不會覆蓋
-        let buffers_count = self.nodes.len();
-        let mut buffers = Vec::with_capacity(buffers_count);
-        for _ in 0..buffers_count {
-            buffers.push(empty_audio_unit());
+        // 1. 建立 petgraph 以進行拓樸排序
+        let mut pet_graph = petgraph::graph::DiGraph::<(), ()>::new();
+        let mut pet_indices = Vec::with_capacity(self.nodes.len());
+        
+        for _ in 0..self.nodes.len() {
+            pet_indices.push(pet_graph.add_node(()));
         }
 
-        // 把 edge 關係反轉，變成：[destination_node] -> Vec<[source_node]>
-        // 這樣要算某個 dest 的時候，就知道要去拉 (pull) 哪些 source 的 buffer 作為 input 疊加
+        for (src, targets) in self.edges.iter().enumerate() {
+            for &dest in targets {
+                pet_graph.add_edge(pet_indices[src], pet_indices[dest], ());
+            }
+        }
+
+        let sorted_pet_indices = petgraph::algo::toposort(&pet_graph, None)
+            .expect("Audio graph contains a cycle! Feedback loops are not supported yet.");
+
+        let sorted_indices: Vec<usize> = sorted_pet_indices.into_iter().map(|idx| idx.index()).collect();
+        let final_dest_idx = self.id_to_index[&destination_id];
+
+        // 2. Buffer 配置優化：找出每個 Node 最後一次被誰當作 Input 使用，當過了那個時候，其 Output Buffer 就能重用
+        let mut last_usage = vec![0; self.nodes.len()];
+        for (exec_idx, &node_idx) in sorted_indices.iter().enumerate() {
+            let mut last_used_at = exec_idx;
+            for &dest_idx in &self.edges[node_idx] {
+                // dest_idx 也是一定存在於 sorted_indices 中的
+                let dest_exec_idx = sorted_indices.iter().position(|&x| x == dest_idx).unwrap();
+                last_used_at = last_used_at.max(dest_exec_idx);
+            }
+            if node_idx == final_dest_idx {
+                last_used_at = usize::MAX; // 最終目標的 Buffer 必須保留到最後回傳
+            }
+            last_usage[node_idx] = last_used_at;
+        }
+
+        let mut buffer_assignment = vec![0; self.nodes.len()];
+        let mut buffer_free_list = Vec::new();
+        let mut next_buffer_id = 0;
+        let mut active_nodes = Vec::new();
+
+        // 模擬執行並分配 Buffer
+        for (exec_idx, &node_idx) in sorted_indices.iter().enumerate() {
+            // 從 Free List 拿，或者宣告新的 Buffer
+            let assigned_buffer = if let Some(buf_id) = buffer_free_list.pop() {
+                buf_id
+            } else {
+                let id = next_buffer_id;
+                next_buffer_id += 1;
+                id
+            };
+            buffer_assignment[node_idx] = assigned_buffer;
+            active_nodes.push(node_idx);
+            
+            // 檢查哪些 Node 的使命已達標，可將它們的 Buffer 釋出重用
+            active_nodes.retain(|&active_node| {
+                if last_usage[active_node] == exec_idx {
+                    buffer_free_list.push(buffer_assignment[active_node]);
+                    false
+                } else {
+                    true
+                }
+            });
+        }
+
+        let buffers_count = next_buffer_id;
+        let buffers = vec![empty_audio_unit(); buffers_count];
+
+        // 3. 把 edge 關係反轉，變成：[destination_node] -> Vec<[source_node]>
         let mut inputs_map = vec![Vec::new(); self.nodes.len()];
         for (src_idx, targets) in self.edges.iter().enumerate() {
             for &dest_idx in targets {
@@ -88,15 +147,15 @@ impl GraphBuilder {
             }
         }
 
-        let final_dest_idx = self.id_to_index[&destination_id];
-
         StaticGraph {
             nodes: self.nodes,
-            node_output_buffers: buffers,
+            node_buffers: buffers,
+            buffer_assignment,
             inputs_map,
             final_destination_index: final_dest_idx,
             msg_receiver,
             id_to_index: self.id_to_index,
+            execution_order: sorted_indices,
         }
     }
 }
@@ -104,13 +163,17 @@ impl GraphBuilder {
 /// 完全靜態、零記憶體配置的音訊運行核心
 pub struct StaticGraph {
     nodes: Vec<NodeType>,
-    /// 存放每個節點剛計算完成的 64-frame AudioUnit 資料
-    node_output_buffers: Vec<AudioUnit>,
+    /// 共用優化後的 AudioUnit Buffers
+    node_buffers: Vec<AudioUnit>,
+    /// 紀錄 node_idx 對應到哪個 buffer id
+    buffer_assignment: Vec<usize>,
     /// 對於每個節點 i，`inputs_map[i]` 紀錄了誰要當它的 input
     inputs_map: Vec<Vec<usize>>,
     final_destination_index: usize,
     msg_receiver: Receiver<ControlMessage>,
     id_to_index: HashMap<NodeId, usize>,
+    /// 節點正確的計算順序（由拓樸排序決定）
+    execution_order: Vec<usize>,
 }
 
 impl StaticGraph {
@@ -122,9 +185,9 @@ impl StaticGraph {
             self.handle_message(msg);
         }
 
-        // 2. 依次計算每個 Node (前提是此處 nodes 為已拓樸排序，索引由小到大皆為 safe 的評估順序)
+        // 2. 依照拓樸排序的安全評估順序來計算每個 Node
         // 這裡不用遞迴回頭 Call，而是平坦的 For 迴圈 (Cache 極度友好)
-        for i in 0..self.nodes.len() {
+        for &i in &self.execution_order {
             // 合併所有先備 Input Buffer
             let mut combined_input = empty_audio_unit();
             let sources = &self.inputs_map[i];
@@ -141,26 +204,29 @@ impl StaticGraph {
                 false
             } else {
                 for &src_idx in sources {
-                    // 將 src 的 output 疊加到 combined_input，利用 dasp 高效處理混音加總
-                    let src_buf = &self.node_output_buffers[src_idx];
+                    // 根據 buffer_assignment 找到這個 source 存放資料的真實 buffer
+                    let src_buf_idx = self.buffer_assignment[src_idx];
+                    let src_buf = &self.node_buffers[src_buf_idx];
                     dasp::slice::add_in_place(&mut combined_input[..], &src_buf[..]);
                 }
                 true
             };
 
-            // 執行 Node 邏輯並寫入其專屬 Output Buffer
+            // 執行 Node 邏輯並寫入其專屬 (或者重用分配的) Output Buffer
             let input_ref = if has_input {
                 Some(&combined_input)
             } else {
                 None
             };
-            let output_ref = &mut self.node_output_buffers[i];
+            let output_buf_idx = self.buffer_assignment[i];
+            let output_ref = &mut self.node_buffers[output_buf_idx];
 
             self.nodes[i].process(input_ref, output_ref);
         }
 
         // 3. 回傳 Destination Node 所產生出來的結果
-        &self.node_output_buffers[self.final_destination_index]
+        let final_buf_idx = self.buffer_assignment[self.final_destination_index];
+        &self.node_buffers[final_buf_idx]
     }
 
     fn handle_message(&mut self, msg: ControlMessage) {
