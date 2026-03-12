@@ -7,6 +7,7 @@ pub mod microphone;
 pub mod mixer;
 pub mod oscillator;
 pub mod resampler;
+pub mod convolver;
 
 pub use delay::DelayNode;
 pub use file::FileNode;
@@ -14,6 +15,7 @@ pub use gain::GainNode;
 pub use microphone::MicrophoneNode;
 pub use mixer::MixerNode;
 pub use oscillator::OscillatorNode;
+pub use convolver::ConvolverNode;
 
 pub enum NodeType {
     Gain(GainNode),
@@ -22,6 +24,7 @@ pub enum NodeType {
     File(FileNode),
     Mixer(MixerNode),
     Delay(DelayNode),
+    Convolver(ConvolverNode),
 }
 
 impl NodeType {
@@ -37,6 +40,7 @@ impl NodeType {
             NodeType::File(node) => node.process(input, output),
             NodeType::Mixer(node) => node.process(input, output),
             NodeType::Delay(node) => node.process(input, output),
+            NodeType::Convolver(node) => node.process(input, output),
         }
     }
 }

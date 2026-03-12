@@ -240,6 +240,7 @@ impl StaticGraph {
                             (NodeType::Oscillator(o), NodeParameter::Gain(val)) => o.set_gain(val),
                             (NodeType::Mixer(m), NodeParameter::Gain(val)) => m.set_gain(val),
                             (NodeType::Delay(d), NodeParameter::DelayUnits(val)) => d.set_delay_units(val),
+                            // Convolver 參數動態更新不支援（因需要重算 IR FFT），暫時不處理
                             // 若後續擴充別的屬性可以在這裡實作
                             // (NodeType::Oscillator(o), NodeParameter::Frequency(val)) => o.set_frequency(val),
                             _ => {}
