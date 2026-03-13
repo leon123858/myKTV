@@ -2,6 +2,7 @@ use crate::types::AudioUnit;
 
 pub mod delay;
 pub mod file;
+pub mod filter;
 pub mod gain;
 pub mod microphone;
 pub mod mixer;
@@ -11,6 +12,7 @@ pub mod convolver;
 
 pub use delay::DelayNode;
 pub use file::FileNode;
+pub use filter::{FilterNode, FilterType};
 pub use gain::GainNode;
 pub use microphone::MicrophoneNode;
 pub use mixer::MixerNode;
@@ -25,6 +27,7 @@ pub enum NodeType {
     Mixer(MixerNode),
     Delay(DelayNode),
     Convolver(ConvolverNode),
+    Filter(FilterNode),
 }
 
 impl NodeType {
@@ -41,6 +44,7 @@ impl NodeType {
             NodeType::Mixer(node) => node.process(input, output),
             NodeType::Delay(node) => node.process(input, output),
             NodeType::Convolver(node) => node.process(input, output),
+            NodeType::Filter(node) => node.process(input, output),
         }
     }
 }

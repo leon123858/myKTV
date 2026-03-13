@@ -56,3 +56,47 @@ fn test_graph_control_message_routing() {
     // Testing internal state is tricky via public interface without outputs, but
     // the code shouldn't panic and gracefully handled the message.
 }
+
+#[test]
+fn test_graph_feedback_loop() {
+    let mut builder = GraphBuilder::new();
+
+    // Setup: Gain1 (input) -> Gain2 (output)
+    // Feedback: Gain2 -> Gain1
+    let g1_id = builder.add_node(NodeType::Gain(GainNode::new(1.0)));
+    let g2_id = builder.add_node(NodeType::Gain(GainNode::new(0.5)));
+
+    builder.connect(g1_id, g2_id);
+    builder.connect_feedback(g2_id, g1_id);
+
+    let (_tx, rx) = unbounded();
+    let mut graph = builder.build(g2_id, rx);
+
+    // Initial state: Gain1 input is silence, so Gain1 out is silence, Gain2 out is silence.
+    let output1 = graph.pull_next_unit();
+    assert_eq!(output1, &empty_audio_unit());
+
+    // Pull again. Gain1 should now have Gain2's previous output (silence) as input.
+    // This is hard to verify value-wise without an oscillator input, but
+    // the fact it doesn't panic on a cycle is the primary verification of connect_feedback.
+    let _output2 = graph.pull_next_unit();
+}
+
+#[test]
+fn test_graph_multiple_inputs_to_gain() {
+    let mut builder = GraphBuilder::new();
+
+    // Two oscillators into one Gain node
+    let osc1 = builder.add_node(NodeType::Oscillator(OscillatorNode::new(48000.0, 440.0)));
+    let osc2 = builder.add_node(NodeType::Oscillator(OscillatorNode::new(48000.0, 880.0)));
+    let gain = builder.add_node(NodeType::Gain(GainNode::new(1.0)));
+
+    builder.connect(osc1, gain);
+    builder.connect(osc2, gain);
+
+    let (_tx, rx) = unbounded();
+    let mut graph = builder.build(gain, rx);
+
+    // This should not panic
+    let _output = graph.pull_next_unit();
+}

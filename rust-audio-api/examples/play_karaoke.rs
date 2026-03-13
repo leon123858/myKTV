@@ -1,7 +1,7 @@
 use rust_audio_api::AudioContext;
 use rust_audio_api::nodes::{
-    ConvolverConfig, ConvolverNode, DelayNode, FileNode, GainNode, MicrophoneNode, MixerNode,
-    NodeType,
+    ConvolverConfig, ConvolverNode, DelayNode, FileNode, FilterNode, FilterType,
+    GainNode, MicrophoneNode, MixerNode, NodeType,
 };
 use rust_audio_api::types::AUDIO_UNIT_SIZE;
 
@@ -49,17 +49,19 @@ fn generate_karaoke_ir(sample_rate: u32) -> Vec<[f32; 2]> {
     ir
 }
 
-/// 卡拉 OK 範例 — 即時麥克風 + 背景音樂 + 延遲回音 + 合成殘響
+/// 卡拉 OK 範例 — 即時麥克風 + 背景音樂 + 延遲回音(含反饋迴路) + 合成殘響
 ///
 /// Audio Graph:
 ///
-///   File ──→ FileGain ──────────────────────────────┐
-///                                                   ↓
-///   Mic ──→ MicGain ──┬─ (dry) ──→ DryGain ──────→ Mixer ──→ MasterGain ──→ Speaker
-///                     │                             ↑   ↑
-///                     ├─ Delay ──→ EchoGain ────────┘   │
-///                     │                                  │
-///                     └─ Convolver ──→ ReverbGain ───────┘
+///   Player → MusicGain ────────────────────────────────────────────┐
+///                                                                  ↓
+///   Mic → Filters1(BP) → MicGain ─┬─ (dry) → DryGain ──────────→ Compressor(Mixer) → Speaker
+///                                  │                               ↑   ↑
+///                                  ├─ Delay → EchoGain ───────────┘   │
+///                                  │    ↑                              │
+///                                  │    └─ Filters2(LP) ←────┘ (feedback from EchoGain)
+///                                  │                                   │
+///                                  └─ Convolver → ReverbGain ─────────┘
 ///
 fn main() {
     let music_path = "examples/resource/music.mp3";
@@ -82,34 +84,53 @@ fn main() {
         println!("載入背景音樂: {}", music_path);
         let file_node = FileNode::new(music_path, sample_rate).expect("無法讀取音檔");
         let file = builder.add_node(NodeType::File(file_node));
-        let file_gain = builder.add_node(NodeType::Gain(GainNode::new(0.15)));
-        builder.connect(file, file_gain);
+        let music_gain = builder.add_node(NodeType::Gain(GainNode::new(0.15)));
+        builder.connect(file, music_gain);
 
         // ── 麥克風 ──
         println!("建立麥克風節點");
         let mic_node = MicrophoneNode::new(sample_rate).expect("無法開啟麥克風");
         let mic = builder.add_node(NodeType::Microphone(mic_node));
+
+        // ── Filters1: BandPass 麥克風存在感濾波（200-6000 Hz）──
+        // Q = 0.7 讓 Q 值更集中在人聲頻段
+        let filters1 = builder.add_node(NodeType::Filter(
+            FilterNode::new(FilterType::BandPass, sample_rate, 1000.0, 0.7),
+        ));
+        builder.connect(mic, filters1);
+
         let mic_gain = builder.add_node(NodeType::Gain(GainNode::new(1.0)));
-        builder.connect(mic, mic_gain);
+        builder.connect(filters1, mic_gain);
 
         // ── Dry (原音) ──
         let dry_gain = builder.add_node(NodeType::Gain(GainNode::new(0.7)));
         builder.connect(mic_gain, dry_gain);
 
-        // ── Echo (延遲回音) ──
-        let delay_time_sec = 0.15;
+        // ── Echo (延遲回音 + 反饋迴路) ──
+        let delay_time_sec = 0.08; // 縮短為 80ms，產生更紮實的 KTV 效果
         let delay_frames = (sample_rate as f32 * delay_time_sec) as usize;
         let delay_units = delay_frames / AUDIO_UNIT_SIZE;
         let max_delay_units = (sample_rate as usize * 2) / AUDIO_UNIT_SIZE;
         println!("回音延遲: {}s ({} units)", delay_time_sec, delay_units);
 
+        // Filters2: LowPass 回音反饋變暗濾波（2500 Hz）讓反饋更溫潤
+        let filters2 = builder.add_node(NodeType::Filter(
+            FilterNode::new(FilterType::LowPass, sample_rate, 2500.0, 0.707),
+        ));
+
         let delay = builder.add_node(NodeType::Delay(DelayNode::new(
             max_delay_units,
             delay_units,
         )));
-        let echo_gain = builder.add_node(NodeType::Gain(GainNode::new(0.35)));
+        let echo_gain = builder.add_node(NodeType::Gain(GainNode::new(0.4)));
+
+        // 正常路徑：mic_gain → delay → echo_gain
         builder.connect(mic_gain, delay);
         builder.connect(delay, echo_gain);
+
+        // 反饋路徑：echo_gain → filters2 → delay（使用 feedback 連線）
+        builder.connect_feedback(echo_gain, filters2);
+        builder.connect(filters2, delay);
 
         // ── Reverb (合成殘響) ──
         let reverb_config = ConvolverConfig {
@@ -119,30 +140,27 @@ fn main() {
         };
         let convolver_node = ConvolverNode::with_config(&ir, reverb_config);
         let convolver = builder.add_node(NodeType::Convolver(convolver_node));
-        let reverb_gain = builder.add_node(NodeType::Gain(GainNode::new(0.3)));
+        let reverb_gain = builder.add_node(NodeType::Gain(GainNode::new(0.4)));
         builder.connect(mic_gain, convolver);
         builder.connect(convolver, reverb_gain);
 
-        // ── 總混音 ──
-        let mixer = builder.add_node(NodeType::Mixer(MixerNode::with_gain(1.0)));
-        builder.connect(file_gain, mixer);
-        builder.connect(dry_gain, mixer);
-        builder.connect(echo_gain, mixer);
-        builder.connect(reverb_gain, mixer);
+        // ── 總混音 (Compressor = MixerNode with gain + clipping) ──
+        let compressor = builder.add_node(NodeType::Mixer(MixerNode::with_gain(0.8)));
+        builder.connect(music_gain, compressor);
+        builder.connect(dry_gain, compressor);
+        builder.connect(echo_gain, compressor);
+        builder.connect(reverb_gain, compressor);
 
-        // ── Master Gain ──
-        let master_gain = builder.add_node(NodeType::Gain(GainNode::new(0.8)));
-        builder.connect(mixer, master_gain);
-
-        master_gain
+        compressor
     });
 
     ctx.resume(dest_id).unwrap();
 
     println!("========================================");
     println!("🎤 卡拉 OK 模式啟動！");
-    println!("🎵 背景音樂 + 麥克風即時回音 + 合成殘響");
-    println!("🎛️  Dry: 0.7 / Echo: 0.35 (0.15s) / Reverb: 0.3");
+    println!("🎵 背景音樂 + 麥克風即時回音(含反饋) + 合成殘響");
+    println!("🎛️  Dry: 0.7 / Echo: 0.4 (0.08s feedback) / Reverb: 0.4");
+    println!("🔊 filters1: BandPass 1000Hz / filters2: LowPass 2500Hz");
     println!("⌨️  按下 Enter 鍵結束程式...");
     println!("========================================");
 
