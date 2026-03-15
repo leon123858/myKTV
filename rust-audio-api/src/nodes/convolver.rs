@@ -228,12 +228,12 @@ impl ConvolverNode {
                     }
                     head = (head + AUDIO_UNIT_SIZE) % hist_cap;
 
-                    if dropped { continue; }
-
                     let mut blocks_iter = blocks.iter().skip(1).peekable();
                     while let Some(block) = blocks_iter.next() {
                         let units_needed = block.size / AUDIO_UNIT_SIZE;
                         if (task.unit_index + 1) % units_needed as u64 == 0 {
+                            if dropped { continue; }
+                            
                             let s = block.size;
                             let (fft, ifft) = fft_plans.get(&(s * 2)).unwrap();
                             
