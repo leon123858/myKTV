@@ -52,6 +52,7 @@ fn test_convolver_delayed_impulse() {
     // Process block 2 (empty input)
     let input2 = empty_audio_unit();
     let mut output2 = empty_audio_unit();
+    std::thread::sleep(std::time::Duration::from_millis(50));
     convolver.process(Some(&input2), &mut output2);
 
     // 63 + 5 = 68. 68 - 64 = 4
@@ -84,6 +85,7 @@ fn test_convolver_overlap_add() {
 
     let input2 = empty_audio_unit();
     let mut output2 = empty_audio_unit();
+    std::thread::sleep(std::time::Duration::from_millis(50));
     convolver.process(Some(&input2), &mut output2);
 
     // 99 - 64 = 35

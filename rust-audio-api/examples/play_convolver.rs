@@ -1,5 +1,7 @@
 use rust_audio_api::AudioContext;
 use rust_audio_api::nodes::{ConvolverNode, FileNode, GainNode, NodeType};
+use std::sync::atomic::Ordering;
+use std::time::Duration;
 
 fn main() {
     let file_path = "examples/resource/music.mp3";
@@ -17,8 +19,17 @@ fn main() {
         let ir_path = "examples/resource/hall01.wav";
         println!("讀取 IR 檔案: {}", ir_path);
 
-        let convolver_node = ConvolverNode::from_file(ir_path, sample_rate, Some(64 * 8))
-            .expect("無法建構 ConvolverNode");
+        let convolver_node =
+            ConvolverNode::from_file(ir_path, sample_rate, None).expect("無法建構 ConvolverNode");
+        
+        let drop_count = convolver_node.clone_drop_count();
+
+        std::thread::spawn(move || {
+            loop {
+                std::thread::sleep(Duration::from_secs(1));
+                println!("目前的 Drop Count: {}", drop_count.load(Ordering::Relaxed));
+            }
+        });
 
         let convolver = builder.add_node(NodeType::Convolver(convolver_node));
 

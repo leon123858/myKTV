@@ -14,3 +14,7 @@ ringbuf = "0.4.8"
 symphonia = { version = "0.5.5", features = ["mp3"] }
 uuid = { version = "1.22.0", features = ["v4"] }
 dasp_ring_buffer = "0.11.0"
+realfft = "3.5.0"
+rustfft = "6.4.1"
+crossbeam-utils = "0.8.21"
+crossbeam-queue = "0.3.12"
