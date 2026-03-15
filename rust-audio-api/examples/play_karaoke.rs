@@ -1,7 +1,7 @@
 use rust_audio_api::AudioContext;
 use rust_audio_api::nodes::{
-    ConvolverConfig, ConvolverNode, DelayNode, FileNode, FilterNode, FilterType,
-    GainNode, MicrophoneNode, MixerNode, NodeType,
+    ConvolverConfig, ConvolverNode, DelayNode, FileNode, FilterNode, FilterType, GainNode,
+    MicrophoneNode, MixerNode, NodeType,
 };
 use rust_audio_api::types::AUDIO_UNIT_SIZE;
 
@@ -94,9 +94,12 @@ fn main() {
 
         // ── Filters1: BandPass 麥克風存在感濾波（200-6000 Hz）──
         // Q = 0.7 讓 Q 值更集中在人聲頻段
-        let filters1 = builder.add_node(NodeType::Filter(
-            FilterNode::new(FilterType::BandPass, sample_rate, 1000.0, 0.7),
-        ));
+        let filters1 = builder.add_node(NodeType::Filter(FilterNode::new(
+            FilterType::BandPass,
+            sample_rate,
+            1000.0,
+            0.7,
+        )));
         builder.connect(mic, filters1);
 
         let mic_gain = builder.add_node(NodeType::Gain(GainNode::new(1.0)));
@@ -114,9 +117,12 @@ fn main() {
         println!("回音延遲: {}s ({} units)", delay_time_sec, delay_units);
 
         // Filters2: LowPass 回音反饋變暗濾波（2500 Hz）讓反饋更溫潤
-        let filters2 = builder.add_node(NodeType::Filter(
-            FilterNode::new(FilterType::LowPass, sample_rate, 2500.0, 0.707),
-        ));
+        let filters2 = builder.add_node(NodeType::Filter(FilterNode::new(
+            FilterType::LowPass,
+            sample_rate,
+            2500.0,
+            0.707,
+        )));
 
         let delay = builder.add_node(NodeType::Delay(DelayNode::new(
             max_delay_units,
@@ -135,8 +141,7 @@ fn main() {
         // ── Reverb (合成殘響) ──
         let reverb_config = ConvolverConfig {
             stereo: false,
-            growth_exponent: 4,
-            base_block_multiplier: 1,
+            growth_exponent: 2,
         };
         let convolver_node = ConvolverNode::with_config(&ir, reverb_config);
         let convolver = builder.add_node(NodeType::Convolver(convolver_node));
