@@ -1,5 +1,5 @@
 use rust_audio_api::AudioContext;
-use rust_audio_api::nodes::{ConvolverConfig, ConvolverNode, FileNode, GainNode, NodeType};
+use rust_audio_api::nodes::{ConvolverNode, FileNode, GainNode, NodeType};
 
 fn main() {
     let file_path = "examples/resource/music.mp3";
@@ -17,12 +17,7 @@ fn main() {
         let ir_path = "examples/resource/hall01.wav";
         println!("讀取 IR 檔案: {}", ir_path);
 
-        let config = ConvolverConfig {
-            stereo: false,
-            growth_exponent: 4,
-            base_block_multiplier: 1,
-        };
-        let convolver_node = ConvolverNode::from_file_with_config(ir_path, Some(512), config)
+        let convolver_node = ConvolverNode::from_file(ir_path, sample_rate, Some(64 * 8))
             .expect("無法建構 ConvolverNode");
 
         let convolver = builder.add_node(NodeType::Convolver(convolver_node));

@@ -52,7 +52,11 @@ impl SkipStage {
             ir_offset,
             acc_pos: 0,
             output_buf_l: mk_fbuf(block_size),
-            output_buf_r: if stereo { Some(mk_fbuf(block_size)) } else { None },
+            output_buf_r: if stereo {
+                Some(mk_fbuf(block_size))
+            } else {
+                None
+            },
         }
     }
 
@@ -409,12 +413,22 @@ pub struct ConvolverNode {
 }
 
 impl ConvolverNode {
-    pub fn from_file(path: &str, max_len: Option<usize>) -> anyhow::Result<Self> {
-        Self::from_file_with_config(path, max_len, ConvolverConfig::default())
+    pub fn from_file(
+        path: &str,
+        target_sample_rate: u32,
+        max_len: Option<usize>,
+    ) -> anyhow::Result<Self> {
+        Self::from_file_with_config(
+            path,
+            target_sample_rate,
+            max_len,
+            ConvolverConfig::default(),
+        )
     }
 
     pub fn from_file_with_config(
         path: &str,
+        target_sample_rate: u32,
         max_len: Option<usize>,
         config: ConvolverConfig,
     ) -> anyhow::Result<Self> {
@@ -436,6 +450,20 @@ impl ConvolverNode {
             panic!("unexpected ir file format")
         }
 
+        let mut ir = if spec.sample_rate != target_sample_rate {
+            println!(
+                "IR 採樣率 ({}) 與目標採樣率 ({}) 不同，進行重採樣...",
+                spec.sample_rate, target_sample_rate
+            );
+            Self::resample_ir(&ir, spec.sample_rate, target_sample_rate)
+        } else {
+            println!(
+                "IR 採樣率 ({}) 與目標採樣率 ({}) 相同，直接使用...",
+                spec.sample_rate, target_sample_rate
+            );
+            ir
+        };
+
         if let Some(max) = max_len {
             if ir.len() > max {
                 println!("IR 過長 ({} samples)，自動截斷為 {} samples", ir.len(), max);
@@ -444,6 +472,21 @@ impl ConvolverNode {
         }
 
         Ok(Self::with_config(&ir, config))
+    }
+
+    fn resample_ir(ir: &[[f32; 2]], from_hz: u32, to_hz: u32) -> Vec<[f32; 2]> {
+        use dasp::signal::Signal;
+        let signal = dasp::signal::from_iter(ir.iter().cloned());
+        let ring_buffer = dasp::ring_buffer::Fixed::from([[0.0; 2]; AUDIO_UNIT_SIZE]);
+        let sinc = dasp::interpolate::sinc::Sinc::new(ring_buffer);
+        let mut converter = signal.from_hz_to_hz(sinc, from_hz as f64, to_hz as f64);
+
+        let new_len = (ir.len() as f64 * (to_hz as f64 / from_hz as f64)).ceil() as usize;
+        let mut new_ir = Vec::with_capacity(new_len);
+        for _ in 0..new_len {
+            new_ir.push(converter.next());
+        }
+        new_ir
     }
 
     pub fn new(ir: &[[f32; 2]]) -> Self {
@@ -458,11 +501,7 @@ impl ConvolverNode {
         let base_mult = config.base_block_multiplier.max(1);
 
         if ir.is_empty() {
-            stages.push(StageKind::Skip(SkipStage::new(
-                AUDIO_UNIT_SIZE,
-                0,
-                stereo,
-            )));
+            stages.push(StageKind::Skip(SkipStage::new(AUDIO_UNIT_SIZE, 0, stereo)));
             return Self {
                 stages,
                 output_ring_l: ring_buffer::Fixed::from(vec![0.0f32; 65536]),
@@ -494,11 +533,7 @@ impl ConvolverNode {
 
             if stage_idx == 0 && base_mult > 1 {
                 // Skip stage: zero CPU cost, sacrifices IR[0..2*b] early reflections
-                stages.push(StageKind::Skip(SkipStage::new(
-                    block_size,
-                    offset,
-                    stereo,
-                )));
+                stages.push(StageKind::Skip(SkipStage::new(block_size, offset, stereo)));
             } else {
                 stages.push(StageKind::Fft(NupcStage::new(
                     &mut planner,
