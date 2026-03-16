@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+thread-priority = "1.1.0"
 anyhow = "1.0.102"
 cpal = { version = "0.17.1", features = ["audio_thread_priority"] }
 crossbeam-channel = "0.5.15"
@@ -18,6 +19,7 @@ realfft = "3.5.0"
 rustfft = "6.4.1"
 crossbeam-utils = "0.8.21"
 crossbeam-queue = "0.3.12"
+rayon = "1.11.0"
 
 [dev-dependencies]
 rand = "0.10.0"

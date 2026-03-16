@@ -1,8 +1,9 @@
 use crate::types::{AUDIO_UNIT_SIZE, AudioUnit};
-use crossbeam_queue::ArrayQueue;
+use crossbeam_channel::{Sender, bounded};
 use std::collections::HashMap;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicU32, AtomicU64, AtomicUsize, Ordering};
+use thread_priority::*;
 
 pub struct ConvolverConfig {
     pub stereo: bool,
@@ -55,10 +56,11 @@ struct PartitionBlock {
     offset: usize,
     time_domain_l: Vec<f32>,
     time_domain_r: Vec<f32>,
-    fft_data_l: Vec<rustfft::num_complex::Complex<f32>>,
-    fft_data_r: Vec<rustfft::num_complex::Complex<f32>>,
+    fft_data_l: Arc<[rustfft::num_complex::Complex<f32>]>,
+    fft_data_r: Arc<[rustfft::num_complex::Complex<f32>]>,
 }
 
+#[derive(Clone)]
 struct TaskMsg {
     unit_index: u64,
     carry_read_ptr: usize,
@@ -70,19 +72,19 @@ pub struct ConvolverNode {
     stereo: bool,
     block_0_l: [f32; AUDIO_UNIT_SIZE],
     block_0_r: [f32; AUDIO_UNIT_SIZE],
-    task_queue: Arc<ArrayQueue<TaskMsg>>,
+    task_senders: Vec<Sender<TaskMsg>>,
     carry_buffer_l: Arc<Vec<AtomicF32>>,
     carry_buffer_r: Arc<Vec<AtomicF32>>,
     carry_mask: usize,
     carry_read_ptr: usize,
     unit_counter: Arc<AtomicU64>,
     drop_count: Arc<AtomicUsize>,
-    is_alive: Arc<AtomicBool>,
 }
 
 impl Drop for ConvolverNode {
     fn drop(&mut self) {
-        self.is_alive.store(false, Ordering::Relaxed);
+        // Drop task_senders, which closes channels, terminating worker threads
+        self.task_senders.clear();
     }
 }
 
@@ -180,10 +182,8 @@ impl ConvolverNode {
                 .collect::<Vec<_>>(),
         );
 
-        let task_queue = Arc::new(ArrayQueue::<TaskMsg>::new(2048));
         let drop_count = Arc::new(AtomicUsize::new(0));
         let unit_counter = Arc::new(AtomicU64::new(0));
-        let is_alive = Arc::new(AtomicBool::new(true));
 
         let mut b0_l = [0.0f32; AUDIO_UNIT_SIZE];
         let mut b0_r = [0.0f32; AUDIO_UNIT_SIZE];
@@ -192,56 +192,75 @@ impl ConvolverNode {
             b0_r.copy_from_slice(&blocks[0].time_domain_r[..AUDIO_UNIT_SIZE]);
         }
 
-        let worker_task_queue = Arc::clone(&task_queue);
-        let worker_carry_l = Arc::clone(&carry_buffer_l);
-        let worker_carry_r = Arc::clone(&carry_buffer_r);
-        let worker_drop_count = Arc::clone(&drop_count);
-        let worker_unit_counter = Arc::clone(&unit_counter);
-        let worker_is_alive = Arc::clone(&is_alive);
+        let mut task_senders = Vec::new();
+        let max_queue_len = 2048;
 
-        let hist_cap = max_block_size.max(AUDIO_UNIT_SIZE).next_power_of_two();
-        let hist_mask = hist_cap - 1;
-        let worker_stereo = stereo;
-
-        std::thread::spawn(move || {
-            let mut head = 0;
-            let mut history_l = vec![0.0f32; hist_cap];
-            let mut history_r = vec![0.0f32; hist_cap];
-
-            let mut planner = realfft::RealFftPlanner::<f32>::new();
-            let mut fft_plans = HashMap::new();
-            for block in &blocks {
-                if block.size == AUDIO_UNIT_SIZE && block.offset == 0 {
-                    continue;
-                }
-                let len2 = block.size * 2;
-                if !fft_plans.contains_key(&len2) {
-                    fft_plans.insert(
-                        len2,
-                        (
-                            planner.plan_fft_forward(len2),
-                            planner.plan_fft_inverse(len2),
-                        ),
-                    );
-                }
+        let mut planner = realfft::RealFftPlanner::<f32>::new();
+        let mut fft_plans = HashMap::new();
+        for block in &blocks {
+            if block.size == AUDIO_UNIT_SIZE && block.offset == 0 {
+                continue;
             }
+            let len2 = block.size * 2;
+            if !fft_plans.contains_key(&len2) {
+                fft_plans.insert(
+                    len2,
+                    (
+                        planner.plan_fft_forward(len2),
+                        planner.plan_fft_inverse(len2),
+                    ),
+                );
+            }
+        }
 
-            let max_fft_len = max_block_size * 2;
-            let mut padded_l = vec![0.0f32; max_fft_len];
-            let mut padded_r = vec![0.0f32; max_fft_len];
-            let max_out_len = max_block_size + 1;
-            let mut out_l = vec![rustfft::num_complex::Complex::new(0.0, 0.0); max_out_len];
-            let mut out_r = vec![rustfft::num_complex::Complex::new(0.0, 0.0); max_out_len];
-            let mut result_l = vec![0.0f32; max_fft_len];
-            let mut result_r = vec![0.0f32; max_fft_len];
+        for block in blocks.into_iter().skip(1) {
+            let (tx, rx) = bounded::<TaskMsg>(max_queue_len);
+            task_senders.push(tx);
 
-            while worker_is_alive.load(Ordering::Relaxed) {
-                if let Some(task) = worker_task_queue.pop() {
-                    let latest_unit = worker_unit_counter.load(Ordering::Acquire);
-                    let age = latest_unit.saturating_sub(task.unit_index);
+            let s = block.size;
+            let hist_cap = s.max(AUDIO_UNIT_SIZE).next_power_of_two();
+            let hist_mask = hist_cap - 1;
+
+            let len2 = s * 2;
+            let out_len = s + 1;
+            let (fft, ifft) = fft_plans.get(&len2).unwrap();
+            let fft_plan = Arc::clone(fft);
+            let ifft_plan = Arc::clone(ifft);
+
+            let block_fft_l = block.fft_data_l;
+            let block_fft_r = block.fft_data_r;
+            let block_offset = block.offset;
+            let units_needed = (s / AUDIO_UNIT_SIZE) as u64;
+
+            let worker_carry_l = Arc::clone(&carry_buffer_l);
+            let worker_carry_r = Arc::clone(&carry_buffer_r);
+            let worker_drop_count = Arc::clone(&drop_count);
+            let worker_stereo = stereo;
+
+            std::thread::spawn(move || {
+                if let Err(e) = set_current_thread_priority(ThreadPriority::Max) {
+                    eprintln!("警告: 無法提升卷積區塊執行緒優先權: {:?}", e);
+                }
+
+                let mut head = 0;
+                let mut history_l = vec![0.0f32; hist_cap];
+                let mut history_r = vec![0.0f32; hist_cap];
+
+                let mut pad_l = vec![0.0f32; len2];
+                let mut pad_r = vec![0.0f32; len2];
+                let mut out_l_slice = vec![rustfft::num_complex::Complex::new(0.0, 0.0); out_len];
+                let mut out_r_slice = vec![rustfft::num_complex::Complex::new(0.0, 0.0); out_len];
+                let mut res_l = vec![0.0f32; len2];
+                let mut res_r = vec![0.0f32; len2];
+
+                while let Ok(task) = rx.recv() {
+                    let queue_len = rx.len();
+
+                    // 動態背壓：隊列越滿，允許的年齡越低 (越容易丟棄)
+                    let max_queue_age = if queue_len > max_queue_len / 2 { 2 } else { 8 };
+
                     let mut dropped = false;
-
-                    if age > 4 {
+                    if queue_len > max_queue_age {
                         dropped = true;
                         worker_drop_count.fetch_add(1, Ordering::Relaxed);
                     }
@@ -254,98 +273,79 @@ impl ConvolverNode {
                     }
                     head = (head + AUDIO_UNIT_SIZE) & hist_mask;
 
-                    if dropped {
-                        continue;
-                    }
+                    if (task.unit_index + 1) % units_needed == 0 {
+                        if dropped {
+                            continue;
+                        }
 
-                    let mut blocks_iter = blocks.iter().skip(1).peekable();
-                    while let Some(block) = blocks_iter.next() {
-                        let units_needed = block.size / AUDIO_UNIT_SIZE;
-                        if (task.unit_index + 1) % units_needed as u64 == 0 {
-                            let s = block.size;
-                            let len2 = s * 2;
-                            let out_len = s + 1;
-                            let (fft, ifft) = fft_plans.get(&len2).unwrap();
+                        let start_idx = (head + hist_cap - s) & hist_mask;
 
-                            let start_idx = (head + hist_cap - s) & hist_mask;
+                        for i in 0..s {
+                            pad_l[i] = history_l[(start_idx + i) & hist_mask];
+                        }
+                        pad_l[s..].fill(0.0);
 
-                            let pad_l = &mut padded_l[..len2];
-                            pad_l[s..].fill(0.0);
+                        if worker_stereo {
                             for i in 0..s {
-                                pad_l[i] = history_l[(start_idx + i) & hist_mask];
+                                pad_r[i] = history_r[(start_idx + i) & hist_mask];
                             }
+                            pad_r[s..].fill(0.0);
+                        }
 
-                            let pad_r = &mut padded_r[..len2];
+                        fft_plan.process(&mut pad_l, &mut out_l_slice).unwrap();
+                        if worker_stereo {
+                            fft_plan.process(&mut pad_r, &mut out_r_slice).unwrap();
+                        }
+
+                        for i in 0..out_len {
+                            out_l_slice[i] = out_l_slice[i] * block_fft_l[i];
                             if worker_stereo {
-                                pad_r[s..].fill(0.0);
-                                for i in 0..s {
-                                    pad_r[i] = history_r[(start_idx + i) & hist_mask];
-                                }
+                                out_r_slice[i] = out_r_slice[i] * block_fft_r[i];
                             }
+                        }
 
-                            let out_l_slice = &mut out_l[..out_len];
-                            fft.process(pad_l, out_l_slice).unwrap();
+                        ifft_plan.process(&mut out_l_slice, &mut res_l).unwrap();
+                        let scale = 1.0 / (len2 as f32);
+                        for x in res_l.iter_mut() {
+                            *x *= scale;
+                        }
 
-                            let out_r_slice = &mut out_r[..out_len];
-                            if worker_stereo {
-                                fft.process(pad_r, out_r_slice).unwrap();
-                            }
-
-                            for i in 0..out_len {
-                                out_l_slice[i] = out_l_slice[i] * block.fft_data_l[i];
-                                if worker_stereo {
-                                    out_r_slice[i] = out_r_slice[i] * block.fft_data_r[i];
-                                }
-                            }
-
-                            let res_l = &mut result_l[..len2];
-                            ifft.process(out_l_slice, res_l).unwrap();
-                            let scale = 1.0 / (len2 as f32);
-                            for x in res_l.iter_mut() {
+                        if worker_stereo {
+                            ifft_plan.process(&mut out_r_slice, &mut res_r).unwrap();
+                            for x in res_r.iter_mut() {
                                 *x *= scale;
                             }
+                        }
 
-                            let res_r = &mut result_r[..len2];
+                        let base_ptr = (task.carry_read_ptr + capacity
+                            - (((units_needed - 1) * AUDIO_UNIT_SIZE as u64) as usize
+                                & carry_mask))
+                            & carry_mask;
+                        let out_base = (base_ptr + block_offset) & carry_mask;
+
+                        for i in 0..(len2 - 1) {
+                            let idx = (out_base + i) & carry_mask;
+                            worker_carry_l[idx].fetch_add(res_l[i], Ordering::Relaxed);
                             if worker_stereo {
-                                ifft.process(out_r_slice, res_r).unwrap();
-                                for x in res_r.iter_mut() {
-                                    *x *= scale;
-                                }
-                            }
-
-                            let base_ptr = (task.carry_read_ptr + capacity
-                                - (((units_needed - 1) * AUDIO_UNIT_SIZE) & carry_mask))
-                                & carry_mask;
-                            let out_base = (base_ptr + block.offset) & carry_mask;
-
-                            for i in 0..(len2 - 1) {
-                                let idx = (out_base + i) & carry_mask;
-                                worker_carry_l[idx].fetch_add(res_l[i], Ordering::Relaxed);
-                                if worker_stereo {
-                                    worker_carry_r[idx].fetch_add(res_r[i], Ordering::Relaxed);
-                                }
+                                worker_carry_r[idx].fetch_add(res_r[i], Ordering::Relaxed);
                             }
                         }
                     }
-                } else {
-                    std::thread::yield_now();
-                    std::thread::sleep(std::time::Duration::from_micros(20));
                 }
-            }
-        });
+            });
+        }
 
         Self {
             stereo,
             block_0_l: b0_l,
             block_0_r: b0_r,
-            task_queue,
+            task_senders,
             carry_buffer_l,
             carry_buffer_r,
             carry_mask,
             carry_read_ptr: 0,
             unit_counter,
             drop_count,
-            is_alive,
         }
     }
 
@@ -362,8 +362,8 @@ impl ConvolverNode {
             offset,
             time_domain_l: b0_l,
             time_domain_r: b0_r,
-            fft_data_l: vec![],
-            fft_data_r: vec![],
+            fft_data_l: Arc::new([]),
+            fft_data_r: Arc::new([]),
         });
         offset += b0_len;
 
@@ -392,8 +392,8 @@ impl ConvolverNode {
                 offset,
                 time_domain_l: vec![],
                 time_domain_r: vec![],
-                fft_data_l: out_l,
-                fft_data_r: out_r,
+                fft_data_l: out_l.into(),
+                fft_data_r: out_r.into(),
             });
 
             // Even if taking short blocks at the end, continue until offset covers IR.
@@ -468,8 +468,10 @@ impl ConvolverNode {
             input_r: in_r,
         };
 
-        if let Err(_) = self.task_queue.push(task) {
-            self.drop_count.fetch_add(1, Ordering::Relaxed);
+        for sender in &self.task_senders {
+            if let Err(_) = sender.send(task.clone()) {
+                self.drop_count.fetch_add(1, Ordering::Relaxed);
+            }
         }
 
         self.carry_read_ptr = (self.carry_read_ptr + AUDIO_UNIT_SIZE) & mask;
