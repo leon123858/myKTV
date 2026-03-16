@@ -1,8 +1,8 @@
-use crate::types::{AudioUnit, AUDIO_UNIT_SIZE};
+use crate::types::{AUDIO_UNIT_SIZE, AudioUnit};
 use crossbeam_queue::ArrayQueue;
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, AtomicUsize, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, AtomicUsize, Ordering};
 
 pub struct ConvolverConfig {
     pub stereo: bool,
@@ -25,7 +25,7 @@ impl AtomicF32 {
     pub fn new(v: f32) -> Self {
         Self(AtomicU32::new(v.to_bits()))
     }
-    
+
     #[inline(always)]
     pub fn fetch_add(&self, val: f32, order: Ordering) {
         let mut current = self.0.load(order);
@@ -33,7 +33,10 @@ impl AtomicF32 {
             let current_f32 = f32::from_bits(current);
             let new_f32 = current_f32 + val;
             let new_bits = new_f32.to_bits();
-            match self.0.compare_exchange_weak(current, new_bits, order, order) {
+            match self
+                .0
+                .compare_exchange_weak(current, new_bits, order, order)
+            {
                 Ok(_) => break,
                 Err(c) => current = c,
             }
@@ -166,8 +169,16 @@ impl ConvolverNode {
         }
         let carry_mask = capacity - 1;
 
-        let carry_buffer_l = Arc::new((0..capacity).map(|_| AtomicF32::new(0.0)).collect::<Vec<_>>());
-        let carry_buffer_r = Arc::new((0..capacity).map(|_| AtomicF32::new(0.0)).collect::<Vec<_>>());
+        let carry_buffer_l = Arc::new(
+            (0..capacity)
+                .map(|_| AtomicF32::new(0.0))
+                .collect::<Vec<_>>(),
+        );
+        let carry_buffer_r = Arc::new(
+            (0..capacity)
+                .map(|_| AtomicF32::new(0.0))
+                .collect::<Vec<_>>(),
+        );
 
         let task_queue = Arc::new(ArrayQueue::<TaskMsg>::new(2048));
         let drop_count = Arc::new(AtomicUsize::new(0));
@@ -190,7 +201,7 @@ impl ConvolverNode {
 
         let hist_cap = max_block_size.max(AUDIO_UNIT_SIZE);
         let worker_stereo = stereo;
-        
+
         std::thread::spawn(move || {
             let mut head = 0;
             let mut history_l = vec![0.0f32; hist_cap];
@@ -199,22 +210,36 @@ impl ConvolverNode {
             let mut planner = realfft::RealFftPlanner::<f32>::new();
             let mut fft_plans = HashMap::new();
             for block in &blocks {
-                if block.size == AUDIO_UNIT_SIZE && block.offset == 0 { continue; }
+                if block.size == AUDIO_UNIT_SIZE && block.offset == 0 {
+                    continue;
+                }
                 let len2 = block.size * 2;
                 if !fft_plans.contains_key(&len2) {
-                    fft_plans.insert(len2, (
-                        planner.plan_fft_forward(len2),
-                        planner.plan_fft_inverse(len2),
-                    ));
+                    fft_plans.insert(
+                        len2,
+                        (
+                            planner.plan_fft_forward(len2),
+                            planner.plan_fft_inverse(len2),
+                        ),
+                    );
                 }
             }
+
+            let max_fft_len = max_block_size * 2;
+            let mut padded_l = vec![0.0f32; max_fft_len];
+            let mut padded_r = vec![0.0f32; max_fft_len];
+            let max_out_len = max_block_size + 1;
+            let mut out_l = vec![rustfft::num_complex::Complex::new(0.0, 0.0); max_out_len];
+            let mut out_r = vec![rustfft::num_complex::Complex::new(0.0, 0.0); max_out_len];
+            let mut result_l = vec![0.0f32; max_fft_len];
+            let mut result_r = vec![0.0f32; max_fft_len];
 
             while worker_is_alive.load(Ordering::Relaxed) {
                 if let Some(task) = worker_task_queue.pop() {
                     let latest_unit = worker_unit_counter.load(Ordering::Acquire);
                     let age = latest_unit.saturating_sub(task.unit_index);
                     let mut dropped = false;
-                    
+
                     if age > 4 {
                         dropped = true;
                         worker_drop_count.fetch_add(1, Ordering::Relaxed);
@@ -228,64 +253,76 @@ impl ConvolverNode {
                     }
                     head = (head + AUDIO_UNIT_SIZE) % hist_cap;
 
+                    if dropped {
+                        continue;
+                    }
+
                     let mut blocks_iter = blocks.iter().skip(1).peekable();
                     while let Some(block) = blocks_iter.next() {
                         let units_needed = block.size / AUDIO_UNIT_SIZE;
                         if (task.unit_index + 1) % units_needed as u64 == 0 {
-                            if dropped { continue; }
-                            
                             let s = block.size;
-                            let (fft, ifft) = fft_plans.get(&(s * 2)).unwrap();
-                            
-                            let mut segment_l = vec![0.0; s];
-                            let mut segment_r = vec![0.0; s];
+                            let len2 = s * 2;
+                            let out_len = s + 1;
+                            let (fft, ifft) = fft_plans.get(&len2).unwrap();
+
                             let start_idx = (head + hist_cap - s) % hist_cap;
+
+                            let pad_l = &mut padded_l[..len2];
+                            pad_l.fill(0.0);
                             for i in 0..s {
-                                segment_l[i] = history_l[(start_idx + i) % hist_cap];
-                                if worker_stereo {
-                                    segment_r[i] = history_r[(start_idx + i) % hist_cap];
+                                pad_l[i] = history_l[(start_idx + i) % hist_cap];
+                            }
+
+                            let pad_r = &mut padded_r[..len2];
+                            if worker_stereo {
+                                pad_r.fill(0.0);
+                                for i in 0..s {
+                                    pad_r[i] = history_r[(start_idx + i) % hist_cap];
                                 }
                             }
 
-                            let mut padded_l = vec![0.0; s * 2];
-                            padded_l[..s].copy_from_slice(&segment_l);
-                            let mut out_l = fft.make_output_vec();
-                            fft.process(&mut padded_l, &mut out_l).unwrap();
+                            let out_l_slice = &mut out_l[..out_len];
+                            fft.process(pad_l, out_l_slice).unwrap();
 
-                            let mut out_r = fft.make_output_vec();
+                            let out_r_slice = &mut out_r[..out_len];
                             if worker_stereo {
-                                let mut padded_r = vec![0.0; s * 2];
-                                padded_r[..s].copy_from_slice(&segment_r);
-                                fft.process(&mut padded_r, &mut out_r).unwrap();
+                                fft.process(pad_r, out_r_slice).unwrap();
                             }
 
-                            for i in 0..out_l.len() {
-                                out_l[i] = out_l[i] * block.fft_data_l[i];
+                            for i in 0..out_len {
+                                out_l_slice[i] = out_l_slice[i] * block.fft_data_l[i];
                                 if worker_stereo {
-                                    out_r[i] = out_r[i] * block.fft_data_r[i];
+                                    out_r_slice[i] = out_r_slice[i] * block.fft_data_r[i];
                                 }
                             }
 
-                            let mut result_l = vec![0.0; s * 2];
-                            ifft.process(&mut out_l, &mut result_l).unwrap();
-                            let scale = 1.0 / ((s * 2) as f32);
-                            for x in &mut result_l { *x *= scale; }
+                            let res_l = &mut result_l[..len2];
+                            ifft.process(out_l_slice, res_l).unwrap();
+                            let scale = 1.0 / (len2 as f32);
+                            for x in res_l.iter_mut() {
+                                *x *= scale;
+                            }
 
-                            let mut result_r = vec![0.0; s * 2];
+                            let res_r = &mut result_r[..len2];
                             if worker_stereo {
-                                ifft.process(&mut out_r, &mut result_r).unwrap();
-                                for x in &mut result_r { *x *= scale; }
+                                ifft.process(out_r_slice, res_r).unwrap();
+                                for x in res_r.iter_mut() {
+                                    *x *= scale;
+                                }
                             }
 
                             let cap = capacity;
-                            let base_ptr = (task.carry_read_ptr + cap - ((units_needed - 1) * AUDIO_UNIT_SIZE) % cap) % cap;
+                            let base_ptr = (task.carry_read_ptr + cap
+                                - ((units_needed - 1) * AUDIO_UNIT_SIZE) % cap)
+                                % cap;
                             let out_base = (base_ptr + block.offset) % cap;
 
-                            for i in 0..((s * 2) - 1) {
+                            for i in 0..(len2 - 1) {
                                 let idx = (out_base + i) & carry_mask;
-                                worker_carry_l[idx].fetch_add(result_l[i], Ordering::Relaxed);
+                                worker_carry_l[idx].fetch_add(res_l[i], Ordering::Relaxed);
                                 if worker_stereo {
-                                    worker_carry_r[idx].fetch_add(result_r[i], Ordering::Relaxed);
+                                    worker_carry_r[idx].fetch_add(res_r[i], Ordering::Relaxed);
                                 }
                             }
                         }
@@ -316,7 +353,7 @@ impl ConvolverNode {
         let mut blocks = Vec::new();
         let mut offset = 0;
         let growth_factor = growth_exponent.max(1) as usize;
-        
+
         let b0_len = AUDIO_UNIT_SIZE;
         let b0_l = Self::take_slice_padded(ir, offset, b0_len, 0);
         let b0_r = Self::take_slice_padded(ir, offset, b0_len, 1);
