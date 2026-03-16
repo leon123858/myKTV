@@ -199,7 +199,8 @@ impl ConvolverNode {
         let worker_unit_counter = Arc::clone(&unit_counter);
         let worker_is_alive = Arc::clone(&is_alive);
 
-        let hist_cap = max_block_size.max(AUDIO_UNIT_SIZE);
+        let hist_cap = max_block_size.max(AUDIO_UNIT_SIZE).next_power_of_two();
+        let hist_mask = hist_cap - 1;
         let worker_stereo = stereo;
 
         std::thread::spawn(move || {
@@ -246,12 +247,12 @@ impl ConvolverNode {
                     }
 
                     for i in 0..AUDIO_UNIT_SIZE {
-                        history_l[(head + i) % hist_cap] = task.input_l[i];
+                        history_l[(head + i) & hist_mask] = task.input_l[i];
                         if worker_stereo {
-                            history_r[(head + i) % hist_cap] = task.input_r[i];
+                            history_r[(head + i) & hist_mask] = task.input_r[i];
                         }
                     }
-                    head = (head + AUDIO_UNIT_SIZE) % hist_cap;
+                    head = (head + AUDIO_UNIT_SIZE) & hist_mask;
 
                     if dropped {
                         continue;
@@ -266,19 +267,19 @@ impl ConvolverNode {
                             let out_len = s + 1;
                             let (fft, ifft) = fft_plans.get(&len2).unwrap();
 
-                            let start_idx = (head + hist_cap - s) % hist_cap;
+                            let start_idx = (head + hist_cap - s) & hist_mask;
 
                             let pad_l = &mut padded_l[..len2];
-                            pad_l.fill(0.0);
+                            pad_l[s..].fill(0.0);
                             for i in 0..s {
-                                pad_l[i] = history_l[(start_idx + i) % hist_cap];
+                                pad_l[i] = history_l[(start_idx + i) & hist_mask];
                             }
 
                             let pad_r = &mut padded_r[..len2];
                             if worker_stereo {
-                                pad_r.fill(0.0);
+                                pad_r[s..].fill(0.0);
                                 for i in 0..s {
-                                    pad_r[i] = history_r[(start_idx + i) % hist_cap];
+                                    pad_r[i] = history_r[(start_idx + i) & hist_mask];
                                 }
                             }
 
@@ -312,11 +313,10 @@ impl ConvolverNode {
                                 }
                             }
 
-                            let cap = capacity;
-                            let base_ptr = (task.carry_read_ptr + cap
-                                - ((units_needed - 1) * AUDIO_UNIT_SIZE) % cap)
-                                % cap;
-                            let out_base = (base_ptr + block.offset) % cap;
+                            let base_ptr = (task.carry_read_ptr + capacity
+                                - (((units_needed - 1) * AUDIO_UNIT_SIZE) & carry_mask))
+                                & carry_mask;
+                            let out_base = (base_ptr + block.offset) & carry_mask;
 
                             for i in 0..(len2 - 1) {
                                 let idx = (out_base + i) & carry_mask;
