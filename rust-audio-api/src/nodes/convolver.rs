@@ -76,7 +76,9 @@ pub struct ConvolverNode {
     carry_buffer_r: Arc<Vec<AtomicF32>>,
     carry_mask: usize,
     carry_read_ptr: usize,
+    shared_read_ptr: Arc<AtomicUsize>,
     drop_count: Arc<AtomicUsize>,
+    catch_up_count: Arc<AtomicUsize>,
 }
 
 impl Drop for ConvolverNode {
@@ -181,6 +183,8 @@ impl ConvolverNode {
         );
 
         let drop_count = Arc::new(AtomicUsize::new(0));
+        let shared_read_ptr = Arc::new(AtomicUsize::new(0));
+        let catch_up_count = Arc::new(AtomicUsize::new(0));
 
         let mut b0_l = [0.0f32; AUDIO_UNIT_SIZE];
         let mut b0_r = [0.0f32; AUDIO_UNIT_SIZE];
@@ -231,6 +235,8 @@ impl ConvolverNode {
             let worker_carry_l = Arc::clone(&carry_buffer_l);
             let worker_carry_r = Arc::clone(&carry_buffer_r);
             let worker_drop_count = Arc::clone(&drop_count);
+            let worker_shared_read_ptr = Arc::clone(&shared_read_ptr);
+            let worker_catch_up_count = Arc::clone(&catch_up_count);
             let worker_stereo = stereo;
 
             std::thread::spawn(move || {
@@ -313,11 +319,28 @@ impl ConvolverNode {
                             }
                         }
 
-                        let base_ptr = (task.carry_read_ptr + AUDIO_UNIT_SIZE) & carry_mask;
-                        let out_base = (base_ptr + block_offset) & carry_mask;
+                        let current_ptr = worker_shared_read_ptr.load(Ordering::Relaxed);
+                        let task_ptr = task.carry_read_ptr;
+                        let capacity = carry_mask + 1;
 
-                        for i in 0..(len2 - 1) {
-                            let idx = (out_base + i) & carry_mask;
+                        let current_real = if current_ptr < task_ptr {
+                            current_ptr + capacity
+                        } else {
+                            current_ptr
+                        };
+
+                        let out_base_real = task_ptr + AUDIO_UNIT_SIZE + block_offset;
+                        let safe_current_real = current_real + AUDIO_UNIT_SIZE;
+
+                        let skip = if out_base_real < safe_current_real {
+                            worker_catch_up_count.fetch_add(1, Ordering::Relaxed);
+                            safe_current_real - out_base_real
+                        } else {
+                            0
+                        };
+
+                        for i in skip..(len2 - 1) {
+                            let idx = (out_base_real + i) & carry_mask;
                             worker_carry_l[idx].fetch_add(res_l[i], Ordering::Relaxed);
                             if worker_stereo {
                                 worker_carry_r[idx].fetch_add(res_r[i], Ordering::Relaxed);
@@ -337,7 +360,9 @@ impl ConvolverNode {
             carry_buffer_r,
             carry_mask,
             carry_read_ptr: 0,
+            shared_read_ptr,
             drop_count,
+            catch_up_count,
         }
     }
 
@@ -359,7 +384,7 @@ impl ConvolverNode {
         });
         offset += b0_len;
 
-        let mut current_size = AUDIO_UNIT_SIZE;
+        let mut current_size = AUDIO_UNIT_SIZE * (growth_exponent as usize);
         let mut planner = realfft::RealFftPlanner::<f32>::new();
 
         while offset < ir.len() {
@@ -418,7 +443,6 @@ impl ConvolverNode {
             in_r[i] = input_ref[i][1];
         }
 
-
         let mask = self.carry_mask;
 
         let mut b0_out_l = [0.0f32; 127];
@@ -466,6 +490,8 @@ impl ConvolverNode {
         }
 
         self.carry_read_ptr = (self.carry_read_ptr + AUDIO_UNIT_SIZE) & mask;
+        self.shared_read_ptr
+            .store(self.carry_read_ptr, Ordering::Relaxed);
     }
 
     pub fn get_drop_count(&self) -> usize {
@@ -474,5 +500,13 @@ impl ConvolverNode {
 
     pub fn clone_drop_count(&self) -> Arc<AtomicUsize> {
         Arc::clone(&self.drop_count)
+    }
+
+    pub fn clone_catch_up_count(&self) -> Arc<AtomicUsize> {
+        Arc::clone(&self.catch_up_count)
+    }
+
+    pub fn get_catch_up_count(&self) -> usize {
+        self.catch_up_count.load(Ordering::Relaxed)
     }
 }

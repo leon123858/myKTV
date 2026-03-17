@@ -31,15 +31,24 @@ fn main() {
 
         let convolver_node = ConvolverNode::with_config(&ir, config);
         let drop_count = convolver_node.clone_drop_count();
+        let catch_up_count = convolver_node.clone_catch_up_count();
 
         std::thread::spawn(move || {
             let mut last_drop = 0;
+            let mut last_catch_up = 0;
             loop {
                 std::thread::sleep(Duration::from_millis(500));
                 let current_drop = drop_count.load(Ordering::Relaxed);
-                if current_drop > last_drop {
-                    println!("⚠️ Reverb 處理來不及！總掉幀次數: {} (新增: {})", current_drop, current_drop - last_drop);
+                let current_catch_up = catch_up_count.load(Ordering::Relaxed);
+                
+                if current_drop > last_drop || current_catch_up > last_catch_up {
+                    println!(
+                        "⚠️ Reverb 處理來不及！總掉幀次數: {} (新增: {}), 被追過次數: {} (新增: {})", 
+                        current_drop, current_drop - last_drop,
+                        current_catch_up, current_catch_up - last_catch_up
+                    );
                     last_drop = current_drop;
+                    last_catch_up = current_catch_up;
                 }
             }
         });
