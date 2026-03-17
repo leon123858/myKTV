@@ -2,7 +2,7 @@ use crate::types::{AUDIO_UNIT_SIZE, AudioUnit};
 use crossbeam_channel::{Sender, bounded};
 use std::collections::HashMap;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicU32, AtomicU64, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicU32, AtomicUsize, Ordering};
 use thread_priority::*;
 
 pub struct ConvolverConfig {
@@ -62,7 +62,6 @@ struct PartitionBlock {
 
 #[derive(Clone)]
 struct TaskMsg {
-    unit_index: u64,
     carry_read_ptr: usize,
     input_l: [f32; AUDIO_UNIT_SIZE],
     input_r: [f32; AUDIO_UNIT_SIZE],
@@ -77,7 +76,6 @@ pub struct ConvolverNode {
     carry_buffer_r: Arc<Vec<AtomicF32>>,
     carry_mask: usize,
     carry_read_ptr: usize,
-    unit_counter: Arc<AtomicU64>,
     drop_count: Arc<AtomicUsize>,
 }
 
@@ -183,7 +181,6 @@ impl ConvolverNode {
         );
 
         let drop_count = Arc::new(AtomicUsize::new(0));
-        let unit_counter = Arc::new(AtomicU64::new(0));
 
         let mut b0_l = [0.0f32; AUDIO_UNIT_SIZE];
         let mut b0_r = [0.0f32; AUDIO_UNIT_SIZE];
@@ -230,7 +227,6 @@ impl ConvolverNode {
             let block_fft_l = block.fft_data_l;
             let block_fft_r = block.fft_data_r;
             let block_offset = block.offset;
-            let units_needed = (s / AUDIO_UNIT_SIZE) as u64;
 
             let worker_carry_l = Arc::clone(&carry_buffer_l);
             let worker_carry_r = Arc::clone(&carry_buffer_r);
@@ -273,7 +269,7 @@ impl ConvolverNode {
                     }
                     head = (head + AUDIO_UNIT_SIZE) & hist_mask;
 
-                    if (task.unit_index + 1) % units_needed == 0 {
+                    if (task.carry_read_ptr + AUDIO_UNIT_SIZE) % s == 0 {
                         if dropped {
                             continue;
                         }
@@ -317,10 +313,7 @@ impl ConvolverNode {
                             }
                         }
 
-                        let base_ptr = (task.carry_read_ptr + capacity
-                            - (((units_needed - 1) * AUDIO_UNIT_SIZE as u64) as usize
-                                & carry_mask))
-                            & carry_mask;
+                        let base_ptr = (task.carry_read_ptr + AUDIO_UNIT_SIZE) & carry_mask;
                         let out_base = (base_ptr + block_offset) & carry_mask;
 
                         for i in 0..(len2 - 1) {
@@ -344,7 +337,6 @@ impl ConvolverNode {
             carry_buffer_r,
             carry_mask,
             carry_read_ptr: 0,
-            unit_counter,
             drop_count,
         }
     }
@@ -426,7 +418,7 @@ impl ConvolverNode {
             in_r[i] = input_ref[i][1];
         }
 
-        let unit_idx = self.unit_counter.fetch_add(1, Ordering::SeqCst);
+
         let mask = self.carry_mask;
 
         let mut b0_out_l = [0.0f32; 127];
@@ -462,7 +454,6 @@ impl ConvolverNode {
         }
 
         let task = TaskMsg {
-            unit_index: unit_idx,
             carry_read_ptr: self.carry_read_ptr,
             input_l: in_l,
             input_r: in_r,
