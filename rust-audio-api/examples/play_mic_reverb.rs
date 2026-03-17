@@ -1,5 +1,5 @@
 use rust_audio_api::AudioContext;
-use rust_audio_api::nodes::{ConvolverNode, ConvolverConfig, MicrophoneNode, NodeType};
+use rust_audio_api::nodes::{ConvolverNode, MicrophoneNode, NodeType};
 use std::sync::atomic::Ordering;
 use std::time::Duration;
 
@@ -18,18 +18,16 @@ fn main() {
         let ir_len = (sample_rate as f32 * 1.5) as usize;
         let mut ir = vec![[0.0; 2]; ir_len];
         
-        for i in 0..ir_len {
-            let t = i as f32 / sample_rate as f32;
-            let decay = (-5.0 * t).exp();
-            let noise = (rand::random::<f32>() * 2.0 - 1.0) * decay;
-            ir[i][0] = noise;
-            ir[i][1] = noise;
-        }
-
-        let mut config = ConvolverConfig::default();
-        config.stereo = false; // Optimize CPU load assuming typical mono mic
-
-        let convolver_node = ConvolverNode::with_config(&ir, config);
+        // for i in 0..ir_len {
+        //     let t = i as f32 / sample_rate as f32;
+        //     let decay = (-5.0 * t).exp();
+        //     let noise = (rand::random::<f32>() * 2.0 - 1.0) * decay;
+        //     ir[i][0] = noise;
+        //     ir[i][1] = noise;
+        // }
+        let ir_path = "examples/resource/hall01.wav";
+        let convolver_node =
+            ConvolverNode::from_file(ir_path, sample_rate, Some(40960)).expect("無法建構 ConvolverNode");
         let drop_count = convolver_node.clone_drop_count();
         let catch_up_count = convolver_node.clone_catch_up_count();
 
