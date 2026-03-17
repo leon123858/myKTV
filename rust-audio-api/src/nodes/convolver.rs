@@ -484,7 +484,7 @@ impl ConvolverNode {
         };
 
         for sender in &self.task_senders {
-            if let Err(_) = sender.send(task.clone()) {
+            if let Err(_) = sender.try_send(task.clone()) {
                 self.drop_count.fetch_add(1, Ordering::Relaxed);
             }
         }
