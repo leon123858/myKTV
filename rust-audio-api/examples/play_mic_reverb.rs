@@ -1,5 +1,5 @@
 use rust_audio_api::AudioContext;
-use rust_audio_api::nodes::{ConvolverNode, MicrophoneNode, NodeType};
+use rust_audio_api::nodes::{ConvolverConfig, ConvolverNode, MicrophoneNode, NodeType};
 use std::sync::atomic::Ordering;
 use std::time::Duration;
 
@@ -16,7 +16,10 @@ fn main() {
 
         let ir_path = "examples/resource/hall01.wav";
         let convolver_node =
-            ConvolverNode::from_file(ir_path, sample_rate, None).expect("無法建構 ConvolverNode");
+            ConvolverNode::from_file_with_config(ir_path, sample_rate, None, ConvolverConfig {
+                stereo: false,
+                growth_exponent: 4
+            }).expect("無法建構 ConvolverNode");
         let drop_count = convolver_node.clone_drop_count();
         let catch_up_count = convolver_node.clone_catch_up_count();
 
@@ -41,11 +44,8 @@ fn main() {
         });
 
         let convolver = builder.add_node(NodeType::Convolver(convolver_node));
-        // let mixer = builder.add_node(NodeType::Mixer(MixerNode::new()));
 
         builder.connect(mic, convolver);
-        // builder.connect(mic, mixer); // Dry signal
-        // builder.connect(convolver, mixer); // Wet signal
 
         convolver
     });
