@@ -15,30 +15,31 @@ fn main() {
         let mic = builder.add_node(NodeType::Microphone(mic_node));
 
         let ir_path = "examples/resource/hall01.wav";
-        let convolver_node =
-            ConvolverNode::from_file_with_config(ir_path, sample_rate, None, ConvolverConfig {
-                stereo: false,
-                growth_exponent: 4
-            }).expect("無法建構 ConvolverNode");
+        let convolver_node = ConvolverNode::from_file_with_config(
+            ir_path,
+            sample_rate,
+            None,
+            ConvolverConfig {
+                stereo: true,
+                growth_exponent: 2,
+            },
+        )
+        .expect("無法建構 ConvolverNode");
         let drop_count = convolver_node.clone_drop_count();
-        let catch_up_count = convolver_node.clone_catch_up_count();
 
         std::thread::spawn(move || {
             let mut last_drop = 0;
-            let mut last_catch_up = 0;
             loop {
                 std::thread::sleep(Duration::from_millis(500));
                 let current_drop = drop_count.load(Ordering::Relaxed);
-                let current_catch_up = catch_up_count.load(Ordering::Relaxed);
-                
-                if current_drop > last_drop || current_catch_up > last_catch_up {
+
+                if current_drop > last_drop {
                     println!(
-                        "⚠️ Reverb 處理來不及！總掉幀次數: {} (新增: {}), 被追過次數: {} (新增: {})", 
-                        current_drop, current_drop - last_drop,
-                        current_catch_up, current_catch_up - last_catch_up
+                        "⚠️ Reverb 處理來不及！總掉幀次數: {} (新增: {})",
+                        current_drop,
+                        current_drop - last_drop
                     );
                     last_drop = current_drop;
-                    last_catch_up = current_catch_up;
                 }
             }
         });
@@ -63,7 +64,9 @@ fn main() {
             if current_late_callbacks > last_late_callbacks {
                 println!(
                     "⚠️ 音訊主執行緒處理太慢！延遲發生次數: {} (新增 {}), 當前 CPU 負載: {}%",
-                    current_late_callbacks, current_late_callbacks - last_late_callbacks, load_percent
+                    current_late_callbacks,
+                    current_late_callbacks - last_late_callbacks,
+                    load_percent
                 );
                 last_late_callbacks = current_late_callbacks;
             } else if load_percent > 80 {

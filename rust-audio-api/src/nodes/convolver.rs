@@ -81,22 +81,21 @@ pub struct ConvolverNode {
     block_0_l: [f32; AUDIO_UNIT_SIZE],
     block_0_r: [f32; AUDIO_UNIT_SIZE],
     task_tx: Sender<TaskMsg>,
-    
+
     carry_buffer_l: Arc<Vec<AtomicF32>>,
     carry_buffer_r: Arc<Vec<AtomicF32>>,
     carry_mask: usize,
     carry_read_ptr: usize,
-    
+
     history_buffer_l: Arc<Vec<AtomicF32>>,
     history_buffer_r: Arc<Vec<AtomicF32>>,
     history_mask: usize,
     history_write_ptr: usize,
-    
+
     partition_blocks: Arc<[PartitionBlock]>,
-    
+
     shared_read_ptr: Arc<AtomicUsize>,
     drop_count: Arc<AtomicUsize>,
-    catch_up_count: Arc<AtomicUsize>,
 }
 
 impl ConvolverNode {
@@ -175,7 +174,10 @@ impl ConvolverNode {
         let stereo = config.stereo;
         let (b0_l_vec, b0_r_vec, blocks_info) = Self::partition_ir(ir, config.growth_exponent);
 
-        let max_block_size = blocks_info.last().map(|b| b.size).unwrap_or(AUDIO_UNIT_SIZE);
+        let max_block_size = blocks_info
+            .last()
+            .map(|b| b.size)
+            .unwrap_or(AUDIO_UNIT_SIZE);
         let mut capacity = (ir.len() + max_block_size * 2).next_power_of_two() * 4;
         if capacity < 65536 {
             capacity = 65536;
@@ -212,7 +214,6 @@ impl ConvolverNode {
 
         let drop_count = Arc::new(AtomicUsize::new(0));
         let shared_read_ptr = Arc::new(AtomicUsize::new(0));
-        let catch_up_count = Arc::new(AtomicUsize::new(0));
 
         let mut b0_l = [0.0f32; AUDIO_UNIT_SIZE];
         let mut b0_r = [0.0f32; AUDIO_UNIT_SIZE];
@@ -225,7 +226,9 @@ impl ConvolverNode {
         let (task_tx, rx) = bounded::<TaskMsg>(max_queue_len);
 
         let partition_blocks: Arc<[PartitionBlock]> = blocks_info.into();
-        let num_workers = std::thread::available_parallelism().map(|x| x.get()).unwrap_or(4);
+        let num_workers = std::thread::available_parallelism()
+            .map(|x| x.get())
+            .unwrap_or(4);
 
         for _ in 0..num_workers {
             let rx = rx.clone();
@@ -235,7 +238,6 @@ impl ConvolverNode {
             let worker_hist_r = Arc::clone(&history_buffer_r);
             let worker_drop_count = Arc::clone(&drop_count);
             let worker_shared_read_ptr = Arc::clone(&shared_read_ptr);
-            let worker_catch_up_count = Arc::clone(&catch_up_count);
             let worker_blocks = Arc::clone(&partition_blocks);
             let worker_stereo = stereo;
             let global_hist_cap = history_capacity;
@@ -249,11 +251,13 @@ impl ConvolverNode {
 
                 let max_len2 = max_block_size * 2;
                 let max_out_len = max_block_size + 1;
-                
+
                 let mut pad_l = vec![0.0f32; max_len2];
                 let mut pad_r = vec![0.0f32; max_len2];
-                let mut out_l_slice = vec![rustfft::num_complex::Complex::new(0.0, 0.0); max_out_len];
-                let mut out_r_slice = vec![rustfft::num_complex::Complex::new(0.0, 0.0); max_out_len];
+                let mut out_l_slice =
+                    vec![rustfft::num_complex::Complex::new(0.0, 0.0); max_out_len];
+                let mut out_r_slice =
+                    vec![rustfft::num_complex::Complex::new(0.0, 0.0); max_out_len];
                 let mut res_l = vec![0.0f32; max_len2];
                 let mut res_r = vec![0.0f32; max_len2];
 
@@ -271,26 +275,35 @@ impl ConvolverNode {
                     let len2 = s * 2;
                     let out_len = s + 1;
 
-                    let start_idx = (task.history_write_ptr + global_hist_cap - s) & global_hist_mask;
+                    let start_idx =
+                        (task.history_write_ptr + global_hist_cap - s) & global_hist_mask;
 
                     for i in 0..s {
-                        pad_l[i] = worker_hist_l[(start_idx + i) & global_hist_mask].load(Ordering::Relaxed);
+                        pad_l[i] = worker_hist_l[(start_idx + i) & global_hist_mask]
+                            .load(Ordering::Relaxed);
                     }
                     pad_l[s..len2].fill(0.0);
 
                     if worker_stereo {
                         for i in 0..s {
-                            pad_r[i] = worker_hist_r[(start_idx + i) & global_hist_mask].load(Ordering::Relaxed);
+                            pad_r[i] = worker_hist_r[(start_idx + i) & global_hist_mask]
+                                .load(Ordering::Relaxed);
                         }
                         pad_r[s..len2].fill(0.0);
                     }
 
                     let pad_l_slice = &mut pad_l[..len2];
-                    block.fft_plan.process(pad_l_slice, &mut out_l_slice[..out_len]).unwrap();
-                    
+                    block
+                        .fft_plan
+                        .process(pad_l_slice, &mut out_l_slice[..out_len])
+                        .unwrap();
+
                     if worker_stereo {
                         let pad_r_slice = &mut pad_r[..len2];
-                        block.fft_plan.process(pad_r_slice, &mut out_r_slice[..out_len]).unwrap();
+                        block
+                            .fft_plan
+                            .process(pad_r_slice, &mut out_r_slice[..out_len])
+                            .unwrap();
                     }
 
                     for i in 0..out_len {
@@ -301,7 +314,10 @@ impl ConvolverNode {
                     }
 
                     let res_l_mut = &mut res_l[..len2];
-                    block.ifft_plan.process(&mut out_l_slice[..out_len], res_l_mut).unwrap();
+                    block
+                        .ifft_plan
+                        .process(&mut out_l_slice[..out_len], res_l_mut)
+                        .unwrap();
                     let scale = 1.0 / (len2 as f32);
                     for x in res_l_mut.iter_mut() {
                         *x *= scale;
@@ -309,7 +325,10 @@ impl ConvolverNode {
 
                     if worker_stereo {
                         let res_r_mut = &mut res_r[..len2];
-                        block.ifft_plan.process(&mut out_r_slice[..out_len], res_r_mut).unwrap();
+                        block
+                            .ifft_plan
+                            .process(&mut out_r_slice[..out_len], res_r_mut)
+                            .unwrap();
                         for x in res_r_mut.iter_mut() {
                             *x *= scale;
                         }
@@ -330,7 +349,6 @@ impl ConvolverNode {
                     let safe_current_real = current_real + AUDIO_UNIT_SIZE;
 
                     let skip = if out_base_real < safe_current_real {
-                        worker_catch_up_count.fetch_add(1, Ordering::Relaxed);
                         safe_current_real - out_base_real
                     } else {
                         0
@@ -356,21 +374,23 @@ impl ConvolverNode {
             carry_buffer_r,
             carry_mask,
             carry_read_ptr: 0,
-            
+
             history_buffer_l,
             history_buffer_r,
             history_mask,
             history_write_ptr: 0,
-            
+
             partition_blocks,
-            
+
             shared_read_ptr,
             drop_count,
-            catch_up_count,
         }
     }
 
-    fn partition_ir(ir: &[[f32; 2]], growth_exponent: u32) -> (Vec<f32>, Vec<f32>, Vec<PartitionBlock>) {
+    fn partition_ir(
+        ir: &[[f32; 2]],
+        growth_exponent: u32,
+    ) -> (Vec<f32>, Vec<f32>, Vec<PartitionBlock>) {
         let mut blocks = Vec::new();
         let mut offset = 0;
         let growth_factor = growth_exponent.max(1) as usize;
@@ -453,12 +473,12 @@ impl ConvolverNode {
 
         let mut b0_out_l = [0.0f32; 127];
         let mut b0_out_r = [0.0f32; 127];
-        
+
         for i in 0..AUDIO_UNIT_SIZE {
             let il = in_l[i];
             let ir = in_r[i];
             let out_l_slice = &mut b0_out_l[i..i + AUDIO_UNIT_SIZE];
-            
+
             for (out_l, &b0l) in out_l_slice.iter_mut().zip(self.block_0_l.iter()) {
                 *out_l += il * b0l;
             }
@@ -515,13 +535,5 @@ impl ConvolverNode {
 
     pub fn clone_drop_count(&self) -> Arc<AtomicUsize> {
         Arc::clone(&self.drop_count)
-    }
-
-    pub fn clone_catch_up_count(&self) -> Arc<AtomicUsize> {
-        Arc::clone(&self.catch_up_count)
-    }
-
-    pub fn get_catch_up_count(&self) -> usize {
-        self.catch_up_count.load(Ordering::Relaxed)
     }
 }
