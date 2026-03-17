@@ -329,7 +329,8 @@ impl ConvolverNode {
                             current_ptr
                         };
 
-                        let out_base_real = task_ptr + AUDIO_UNIT_SIZE + block_offset;
+                        let out_base_real =
+                            (task_ptr + AUDIO_UNIT_SIZE + block_offset).saturating_sub(s);
                         let safe_current_real = current_real + AUDIO_UNIT_SIZE;
 
                         let skip = if out_base_real < safe_current_real {

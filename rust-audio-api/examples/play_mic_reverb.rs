@@ -14,20 +14,9 @@ fn main() {
         let mic_node = MicrophoneNode::new(sample_rate).expect("無法存取麥克風");
         let mic = builder.add_node(NodeType::Microphone(mic_node));
 
-        println!("合成 IR: 1.5 秒殘響");
-        let ir_len = (sample_rate as f32 * 1.5) as usize;
-        let mut ir = vec![[0.0; 2]; ir_len];
-        
-        // for i in 0..ir_len {
-        //     let t = i as f32 / sample_rate as f32;
-        //     let decay = (-5.0 * t).exp();
-        //     let noise = (rand::random::<f32>() * 2.0 - 1.0) * decay;
-        //     ir[i][0] = noise;
-        //     ir[i][1] = noise;
-        // }
         let ir_path = "examples/resource/hall01.wav";
         let convolver_node =
-            ConvolverNode::from_file(ir_path, sample_rate, Some(40960)).expect("無法建構 ConvolverNode");
+            ConvolverNode::from_file(ir_path, sample_rate, None).expect("無法建構 ConvolverNode");
         let drop_count = convolver_node.clone_drop_count();
         let catch_up_count = convolver_node.clone_catch_up_count();
 
@@ -52,8 +41,11 @@ fn main() {
         });
 
         let convolver = builder.add_node(NodeType::Convolver(convolver_node));
+        // let mixer = builder.add_node(NodeType::Mixer(MixerNode::new()));
 
         builder.connect(mic, convolver);
+        // builder.connect(mic, mixer); // Dry signal
+        // builder.connect(convolver, mixer); // Wet signal
 
         convolver
     });
