@@ -1,7 +1,7 @@
 use rust_audio_api::AudioContext;
 use rust_audio_api::nodes::{
-    ConvolverConfig, ConvolverNode, DelayNode, FileNode, FilterNode, FilterType, GainNode,
-    MicrophoneNode, MixerNode, NodeType,
+    ConvolverNode, DelayNode, FileNode, FilterNode, FilterType, GainNode, MicrophoneNode,
+    MixerNode, NodeType,
 };
 use rust_audio_api::types::AUDIO_UNIT_SIZE;
 
@@ -139,11 +139,9 @@ fn main() {
         builder.connect(filters2, delay);
 
         // ── Reverb (合成殘響) ──
-        let reverb_config = ConvolverConfig {
-            stereo: false,
-            growth_exponent: 2,
-        };
-        let convolver_node = ConvolverNode::with_config(&ir, reverb_config);
+        let ir_path = "examples/resource/plate01.wav";
+        let convolver_node =
+            ConvolverNode::from_file(ir_path, sample_rate, None).expect("無法建構 ConvolverNode");
         let convolver = builder.add_node(NodeType::Convolver(convolver_node));
         let reverb_gain = builder.add_node(NodeType::Gain(GainNode::new(0.4)));
         builder.connect(mic_gain, convolver);
