@@ -3,12 +3,31 @@ use crate::types::{AUDIO_UNIT_SIZE, AudioUnit};
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use cpal::{SampleFormat, Stream, StreamConfig};
 use crossbeam_channel::{Sender, unbounded};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicU8, AtomicU32, Ordering};
+use std::time::Instant;
+
+#[derive(Clone)]
+pub struct PerformanceMonitor {
+    pub late_callbacks: Arc<AtomicU32>,
+    pub current_load_percent: Arc<AtomicU8>,
+}
+
+impl Default for PerformanceMonitor {
+    fn default() -> Self {
+        Self {
+            late_callbacks: Arc::new(AtomicU32::new(0)),
+            current_load_percent: Arc::new(AtomicU8::new(0)),
+        }
+    }
+}
 
 pub struct AudioContext {
     stream: Option<Stream>,
     sample_rate: u32,
     msg_sender: Sender<ControlMessage>,
     graph_builder: Option<GraphBuilder>,
+    performance_monitor: PerformanceMonitor,
 }
 
 impl AudioContext {
@@ -25,7 +44,12 @@ impl AudioContext {
             sample_rate,
             msg_sender: tx,
             graph_builder: Some(GraphBuilder::new()),
+            performance_monitor: PerformanceMonitor::default(),
         })
+    }
+
+    pub fn performance_monitor(&self) -> PerformanceMonitor {
+        self.performance_monitor.clone()
     }
 
     pub fn sample_rate(&self) -> u32 {
@@ -87,6 +111,8 @@ impl AudioContext {
         T: cpal::Sample + cpal::SizedSample + cpal::FromSample<f32>,
     {
         let channels = config.channels as usize;
+        let sample_rate = self.sample_rate;
+        let monitor = self.performance_monitor.clone();
 
         let mut unit_frame_index = AUDIO_UNIT_SIZE;
         let mut current_unit: AudioUnit = [[0.0; 2]; AUDIO_UNIT_SIZE];
@@ -94,6 +120,9 @@ impl AudioContext {
         let stream = device.build_output_stream(
             config,
             move |data: &mut [T], _: &cpal::OutputCallbackInfo| {
+                let start_time = Instant::now();
+                let frame_count = data.len() / channels;
+
                 for frame in data.chunks_mut(channels) {
                     if unit_frame_index >= AUDIO_UNIT_SIZE {
                         let new_unit = graph.pull_next_unit();
@@ -115,6 +144,16 @@ impl AudioContext {
                         let mono = (sample_f32[0] + sample_f32[1]) * 0.5;
                         frame[0] = T::from_sample(mono);
                     }
+                }
+
+                let elapsed_micros = start_time.elapsed().as_micros();
+                let max_allowed_micros = (frame_count as f64 / sample_rate as f64 * 1_000_000.0) as u128;
+                
+                let load_percent = ((elapsed_micros as f64 / max_allowed_micros as f64) * 100.0) as u8;
+                monitor.current_load_percent.store(load_percent, Ordering::Relaxed);
+                
+                if elapsed_micros > max_allowed_micros {
+                    monitor.late_callbacks.fetch_add(1, Ordering::Relaxed);
                 }
             },
             |err| eprintln!("音訊串流發生錯誤: {}", err),

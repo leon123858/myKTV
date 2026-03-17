@@ -4,7 +4,8 @@ use rust_audio_api::nodes::{
     MixerNode, NodeType,
 };
 use rust_audio_api::types::AUDIO_UNIT_SIZE;
-
+use std::sync::atomic::Ordering;
+use std::time::Duration;
 /// 生成適合卡拉 OK 的合成 IR（指數衰減噪聲 + 早期反射）
 fn generate_karaoke_ir(sample_rate: u32) -> Vec<[f32; 2]> {
     let duration_sec = 0.08; // 80ms 小房間殘響
@@ -158,6 +159,26 @@ fn main() {
     });
 
     ctx.resume(dest_id).unwrap();
+
+    let monitor = ctx.performance_monitor();
+    std::thread::spawn(move || {
+        let mut last_late_callbacks = 0;
+        loop {
+            std::thread::sleep(Duration::from_millis(500));
+            let current_late_callbacks = monitor.late_callbacks.load(Ordering::Relaxed);
+            let load_percent = monitor.current_load_percent.load(Ordering::Relaxed);
+
+            if current_late_callbacks > last_late_callbacks {
+                println!(
+                    "⚠️ 音訊主執行緒處理太慢！延遲發生次數: {} (新增 {}), 當前 CPU 負載: {}%",
+                    current_late_callbacks, current_late_callbacks - last_late_callbacks, load_percent
+                );
+                last_late_callbacks = current_late_callbacks;
+            } else if load_percent > 80 {
+                println!("⚠️ 音訊主執行緒負載過高！當前 CPU 負載: {}%", load_percent);
+            }
+        }
+    });
 
     println!("========================================");
     println!("🎤 卡拉 OK 模式啟動！");

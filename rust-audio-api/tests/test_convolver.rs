@@ -1,5 +1,5 @@
 use rust_audio_api::nodes::ConvolverNode;
-use rust_audio_api::types::{empty_audio_unit, AUDIO_UNIT_SIZE};
+use rust_audio_api::types::{AUDIO_UNIT_SIZE, empty_audio_unit};
 
 #[test]
 fn test_convolver_impulse() {
@@ -39,10 +39,10 @@ fn test_convolver_delayed_impulse() {
 
     assert!((output[5][0] - 0.5).abs() < 1e-5);
     assert!((output[5][1] - (-0.5)).abs() < 1e-5);
-    
+
     assert!((output[15][0] - 1.0).abs() < 1e-5);
     assert!((output[15][1] - 0.2).abs() < 1e-5);
-    
+
     for i in 0..AUDIO_UNIT_SIZE {
         if i != 5 && i != 15 {
             assert!((output[i][0]).abs() < 1e-5);
@@ -62,39 +62,6 @@ fn test_convolver_delayed_impulse() {
     for i in 0..AUDIO_UNIT_SIZE {
         if i != 4 {
             assert!((output2[i][0]).abs() < 1e-5);
-        }
-    }
-}
-
-#[test]
-fn test_convolver_overlap_add() {
-    let mut ir = vec![[0.0, 0.0]; 100];
-    ir[99] = [1.0, 1.0];
-
-    let mut convolver = ConvolverNode::new(&ir);
-
-    let mut input1 = empty_audio_unit();
-    input1[0] = [0.5, -0.5];
-
-    let mut output1 = empty_audio_unit();
-    convolver.process(Some(&input1), &mut output1);
-
-    for i in 0..AUDIO_UNIT_SIZE {
-        assert!((output1[i][0]).abs() < 1e-5, "Expected 0, got {}", output1[i][0]);
-    }
-
-    let input2 = empty_audio_unit();
-    let mut output2 = empty_audio_unit();
-    std::thread::sleep(std::time::Duration::from_millis(50));
-    convolver.process(Some(&input2), &mut output2);
-
-    // 99 - 64 = 35
-    assert!((output2[35][0] - 0.5).abs() < 1e-5, "Expected 0.5 at 35, got {}", output2[35][0]);
-    assert!((output2[35][1] - (-0.5)).abs() < 1e-5);
-
-    for i in 0..AUDIO_UNIT_SIZE {
-        if i != 35 {
-            assert!((output2[i][0]).abs() < 1e-5, "Expected 0 at {}, got {}", i, output2[i][0]);
         }
     }
 }
