@@ -471,8 +471,9 @@ impl ConvolverNode {
 
         let mask = self.carry_mask;
 
-        let mut b0_out_l = [0.0f32; 127];
-        let mut b0_out_r = [0.0f32; 127];
+        const B0_LEN: usize = AUDIO_UNIT_SIZE * 2 - 1;
+        let mut b0_out_l = [0.0f32; B0_LEN];
+        let mut b0_out_r = [0.0f32; B0_LEN];
 
         for i in 0..AUDIO_UNIT_SIZE {
             let il = in_l[i];
