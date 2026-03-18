@@ -33,6 +33,12 @@ pub struct MixerNode {
     gain: f32,
 }
 
+impl Default for MixerNode {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl MixerNode {
     /// Creates a new `MixerNode` with unity gain (1.0).
     pub fn new() -> Self {

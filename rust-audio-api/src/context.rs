@@ -194,8 +194,8 @@ impl AudioContext {
                     if channels >= 2 {
                         frame[0] = T::from_sample(sample_f32[0]);
                         frame[1] = T::from_sample(sample_f32[1]);
-                        for i in 2..channels {
-                            frame[i] = T::from_sample(0.0);
+                        for f in frame.iter_mut().take(channels).skip(2) {
+                            *f = T::from_sample(0.0);
                         }
                     } else if channels == 1 {
                         let mono = (sample_f32[0] + sample_f32[1]) * 0.5;

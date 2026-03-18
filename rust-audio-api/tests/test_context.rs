@@ -36,7 +36,7 @@ fn test_build_graph() {
 
     let _ = ctx.build_graph(|builder| {
         let osc = OscillatorNode::new(44100.0, 440.0);
-        let osc_id = builder.add_node(NodeType::Oscillator(osc));
-        osc_id
+        
+        builder.add_node(NodeType::Oscillator(osc))
     });
 }

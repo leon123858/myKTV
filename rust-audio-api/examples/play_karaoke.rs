@@ -38,13 +38,13 @@ fn generate_karaoke_ir(sample_rate: u32) -> Vec<[f32; 2]> {
     let tail_start = (0.010 * sample_rate as f64) as usize;
     let decay_rate = 6.0 / duration_sec as f64; // T60 ≈ duration
 
-    for i in tail_start..len {
+    for (i, ir) in ir.iter_mut().enumerate().take(len).skip(tail_start) {
         let t = i as f64 / sample_rate as f64;
         let envelope = (-decay_rate * t).exp() as f32 * 0.3;
         let noise_l = rand_f32() * envelope;
         let noise_r = rand_f32() * envelope;
-        ir[i][0] += noise_l;
-        ir[i][1] += noise_r;
+        ir[0] += noise_l;
+        ir[1] += noise_r;
     }
 
     ir
@@ -142,8 +142,8 @@ fn main() {
         // -- Reverb (Convolution Reverb) --
         let ir_path = "examples/resource/plate01.wav";
         let max_reverb_len = Some((sample_rate as f32 * 1.2) as usize); // Limit length to 1.2 seconds
-        let mut config = rust_audio_api::nodes::ConvolverConfig::default();
-        config.block_0_size = AUDIO_UNIT_SIZE * 4; // Dynamically increase B0 to avoid worker dropouts
+        let config = rust_audio_api::nodes::ConvolverConfig::default();
+        
         let convolver_node =
             ConvolverNode::from_file_with_config(ir_path, sample_rate, max_reverb_len, config)
                 .expect("Unable to construct ConvolverNode");

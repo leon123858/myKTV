@@ -81,13 +81,13 @@ impl MicrophoneNode {
     pub fn process(&mut self, _input: Option<&AudioUnit>, output: &mut AudioUnit) {
         match &mut self.resampler {
             ResamplerState::Passthrough(iter) => {
-                for i in 0..AUDIO_UNIT_SIZE {
-                    output[i] = iter.next();
+                for out in output.iter_mut().take(AUDIO_UNIT_SIZE) {
+                    *out = iter.next();
                 }
             }
             ResamplerState::Resampling(converter) => {
-                for i in 0..AUDIO_UNIT_SIZE {
-                    output[i] = converter.next();
+                for out in output.iter_mut().take(AUDIO_UNIT_SIZE) {
+                    *out = converter.next();
                 }
             }
         }

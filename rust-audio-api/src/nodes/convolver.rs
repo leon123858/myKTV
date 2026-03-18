@@ -20,7 +20,7 @@ impl Default for ConvolverConfig {
         Self {
             stereo: true,
             growth_exponent: 2,
-            block_0_size: AUDIO_UNIT_SIZE * 2,
+            block_0_size: AUDIO_UNIT_SIZE * 4,
         }
     }
 }
@@ -163,8 +163,8 @@ impl ConvolverNode {
             ir
         };
 
-        if let Some(max) = max_len {
-            if ir.len() > max {
+        if let Some(max) = max_len
+            && ir.len() > max {
                 ir.truncate(max);
 
                 // Apply fade-out to avoid artifacts from abrupt truncation (fade-out last 100ms)
@@ -178,7 +178,6 @@ impl ConvolverNode {
                     ir[idx][1] *= fade_gain;
                 }
             }
-        }
 
         Ok(Self::with_config(&ir, config))
     }
@@ -342,9 +341,9 @@ impl ConvolverNode {
                     }
 
                     for i in 0..out_len {
-                        out_l_slice[i] = out_l_slice[i] * block.fft_data_l[i];
+                        out_l_slice[i] *= block.fft_data_l[i];
                         if worker_stereo {
-                            out_r_slice[i] = out_r_slice[i] * block.fft_data_r[i];
+                            out_r_slice[i] *= block.fft_data_r[i];
                         }
                     }
 
@@ -383,11 +382,7 @@ impl ConvolverNode {
                         (task_ptr + AUDIO_UNIT_SIZE + block.offset).saturating_sub(s);
                     let safe_current_real = current_real + AUDIO_UNIT_SIZE;
 
-                    let skip = if out_base_real < safe_current_real {
-                        safe_current_real - out_base_real
-                    } else {
-                        0
-                    };
+                    let skip = safe_current_real.saturating_sub(out_base_real);
 
                     const FADE_LEN: usize = AUDIO_UNIT_SIZE / 4;
 
@@ -561,27 +556,27 @@ impl ConvolverNode {
             }
         }
 
-        for i in 0..AUDIO_UNIT_SIZE {
+        for (i, out) in output.iter_mut().enumerate().take(AUDIO_UNIT_SIZE) {
             let idx = (self.carry_read_ptr + i) & mask;
             let out_l = self.carry_buffer_l[idx].swap(0.0, Ordering::Relaxed);
             let out_r = self.carry_buffer_r[idx].swap(0.0, Ordering::Relaxed);
 
-            output[i][0] = out_l;
+            out[0] = out_l;
             if self.stereo {
-                output[i][1] = out_r;
+                out[1] = out_r;
             } else {
-                output[i][1] = out_l;
+                out[1] = out_l;
             }
         }
 
         for (idx, block) in self.partition_blocks.iter().enumerate() {
-            if (self.carry_read_ptr + AUDIO_UNIT_SIZE) % block.size == 0 {
+            if (self.carry_read_ptr + AUDIO_UNIT_SIZE).is_multiple_of(block.size) {
                 let task = TaskMsg {
                     block_index: idx,
                     carry_read_ptr: self.carry_read_ptr,
                     history_write_ptr: self.history_write_ptr,
                 };
-                if let Err(_) = self.task_tx.try_send(task) {
+                if self.task_tx.try_send(task).is_err() {
                     self.drop_count.fetch_add(1, Ordering::Relaxed);
                 }
             }

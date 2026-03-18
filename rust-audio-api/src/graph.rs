@@ -8,6 +8,12 @@ use uuid::Uuid;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct NodeId(pub Uuid);
 
+impl Default for NodeId {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl NodeId {
     pub fn new() -> Self {
         Self(Uuid::new_v4())
@@ -49,6 +55,12 @@ pub struct GraphBuilder {
     // Feedback edges: (source_node_index, destination_node_index)
     feedback_edges: Vec<(usize, usize)>,
     id_to_index: HashMap<NodeId, usize>,
+}
+
+impl Default for GraphBuilder {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl GraphBuilder {
@@ -307,8 +319,8 @@ impl StaticGraph {
     fn handle_message(&mut self, msg: ControlMessage) {
         match msg {
             ControlMessage::SetParameter(node_id, parameter) => {
-                if let Some(&index) = self.id_to_index.get(&node_id) {
-                    if let Some(node) = self.nodes.get_mut(index) {
+                if let Some(&index) = self.id_to_index.get(&node_id)
+                    && let Some(node) = self.nodes.get_mut(index) {
                         // Enum dispatching (static dispatch)
                         match (node, parameter) {
                             (NodeType::Gain(g), NodeParameter::Gain(val)) => g.set_gain(val),
@@ -325,7 +337,6 @@ impl StaticGraph {
                             _ => {}
                         }
                     }
-                }
             }
         }
     }
