@@ -416,3 +416,4 @@ FodyWeavers.xsd
 *.msix
 *.msm
 *.msp
+rust-audio-api/examples/resource/music-ch.mp3

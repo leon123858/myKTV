@@ -1,0 +1,33 @@
+[package]
+name = "rust-audio-api"
+version = "0.0.1"
+authors = ["a0970785699@gmail.com"]
+edition = "2024"
+description = "A Web Audio API-like wrapper for Rust audio processing."
+license = "Apache-2.0"
+repository = "https://github.com/leon123858/rust-audio-api"
+documentation = "https://docs.rs/rust-audio-api"
+readme = "README.md"
+keywords = ["audio", "wrapper"]
+categories = ["audio"]
+
+[dependencies]
+thread-priority = "1.1.0"
+anyhow = "1.0.102"
+cpal = { version = "0.17.1", features = ["audio_thread_priority"] }
+crossbeam-channel = "0.5.15"
+dasp = { version = "0.11", features = ["all"] }
+hound = "3.5.1"
+petgraph = "0.8.3"
+ringbuf = "0.4.8"
+symphonia = { version = "0.5.5", features = ["mp3"] }
+uuid = { version = "1.22.0", features = ["v4"] }
+dasp_ring_buffer = "0.11.0"
+realfft = "3.5.0"
+rustfft = "6.4.1"
+crossbeam-utils = "0.8.21"
+crossbeam-queue = "0.3.12"
+rayon = "1.11.0"
+
+[dev-dependencies]
+rand = "0.10.0"

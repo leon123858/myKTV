@@ -25,6 +25,7 @@ tauri-plugin-dialog = "2"
 # add your dependencies here
 cpal = { version = "0.17.1", features = ["audio_thread_priority"] }
 anyhow = "1.0"
+dasp = { version = "0.11", features = ["all"] }
 rtrb = "0.3"
 rodio = "0.19"
 rubato = "0.16"

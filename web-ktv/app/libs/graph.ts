@@ -8,15 +8,15 @@ import {
 /**
  * Pro KTV Audio Graph:
  * *
- * 																		  |<--------Filters<---|
- * 																		  |                    |
+ * 					                    |<--------Filters<---|
+ * 					                    |                    |
  * mic -> Filters -> micGain ---┬--- [delay] --- [echoFeedbackGain] ---┬---> [Compressor] -> dest
- * 															|                            					 |                            					 ^
- * 															|-- [Convolver]-[reverbGain]-----------|                            					 |
- * 															|                            					 |                                      |
- * 															└-----[Dry Path] ----------------------┘                                      |
- *                                                                     |
- * player -> musicGain ------------------------------------------------┘
+ * 								|                            		   |           ^
+ * 								|-- [Convolver]-[reverbGain]-----------|           |
+ * 								|                            		   |           |
+ * 								└-----[Dry Path] ----------------------┘           |
+ *                                                                                 |
+ * player -> musicGain ------------------------------------------------------------┘
  */
 export async function generateAudioGraph(
 	nodes: MyAudioGraph,

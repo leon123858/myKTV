@@ -8,6 +8,7 @@ use std::path::PathBuf;
 use std::sync::Mutex;
 use tauri::State;
 
+mod audio_api;
 pub mod audio_node;
 
 pub struct SendWrapper<T>(pub T);
