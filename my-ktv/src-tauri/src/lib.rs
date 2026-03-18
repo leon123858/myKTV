@@ -1,39 +1,65 @@
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
-use crate::audio_node::file_src::FileSrc;
-use crate::audio_node::mic_src::MicSrc;
-use crate::audio_node::mixer::Mixer;
-use crate::audio_node::speaker_dest::SpeakerDest;
-use crate::audio_node::{connect, AudioNode, AudioNodeEnum};
+use rust_audio_api::nodes::{
+    ConvolverNode, DelayNode, FileNode, FilterNode, FilterType, GainNode, MicrophoneNode, MixerNode, NodeType,
+};
+use rust_audio_api::types::AUDIO_UNIT_SIZE;
+use rust_audio_api::AudioContext;
 use std::path::PathBuf;
 use std::sync::Mutex;
 use tauri::State;
 
-mod audio_api;
-pub mod audio_node;
-
-pub struct SendWrapper<T>(pub T);
-unsafe impl<T> Send for SendWrapper<T> {}
-unsafe impl<T> Sync for SendWrapper<T> {}
-
 // Audio state to manage playback
 pub struct AudioState {
-    file_src: Option<AudioNodeEnum>,
-    mic_src: Option<AudioNodeEnum>,
-    mixer: Option<AudioNodeEnum>,
-    speaker_dest: Option<AudioNodeEnum>,
+    context: Option<AudioContext>,
     current_file: Option<String>,
 }
 
 impl AudioState {
     fn new() -> Self {
         Self {
-            file_src: None,
-            mic_src: None,
-            mixer: None,
-            speaker_dest: Some(AudioNodeEnum::SpeakerDest(SpeakerDest::init())),
+            context: None,
             current_file: None,
         }
     }
+}
+
+/// Generates a synthetic IR suitable for Asian KTV style (large room / hall reverb)
+fn generate_karaoke_ir(sample_rate: u32) -> Vec<[f32; 2]> {
+    let duration_sec = 1.2; // 1.2s reverb tail typical for KTV
+    let len = (sample_rate as f32 * duration_sec) as usize;
+    let mut ir = vec![[0.0f32; 2]; len];
+
+    let mut seed: u32 = 12345;
+    let mut rand_f32 = || -> f32 {
+        seed = seed.wrapping_mul(1103515245).wrapping_add(12345);
+        ((seed >> 16) as f32 / 32768.0) - 1.0
+    };
+
+    let early_reflections: &[(usize, f32)] = &[
+        (0, 1.0),
+        ((0.015 * sample_rate as f64) as usize, 0.7),
+        ((0.025 * sample_rate as f64) as usize, 0.5),
+        ((0.040 * sample_rate as f64) as usize, 0.3),
+        ((0.060 * sample_rate as f64) as usize, 0.2),
+    ];
+
+    for &(offset, gain) in early_reflections {
+        if offset < len {
+            ir[offset] = [gain, gain];
+        }
+    }
+
+    let tail_start = (0.010 * sample_rate as f64) as usize;
+    let decay_rate = 6.0 / duration_sec as f64;
+
+    for (i, ir) in ir.iter_mut().enumerate().take(len).skip(tail_start) {
+        let t = i as f64 / sample_rate as f64;
+        let envelope = (-decay_rate * t).exp() as f32 * 0.4;
+        ir[0] += rand_f32() * envelope;
+        ir[1] += rand_f32() * envelope;
+    }
+
+    ir
 }
 
 #[tauri::command]
@@ -67,71 +93,41 @@ fn play_audio_file(
     println!("[Play] Attempting to play: {}", path);
 
     // Stop any existing playback
-    if let Some(ref mut src) = state.file_src {
-        src.stop();
-    }
+    state.context = None;
 
-    // Create new FileSrc with the selected file
     let file_path = PathBuf::from(&path);
     if !file_path.exists() {
         return Err(format!("File not found: {}", path));
     }
 
-    let mut src_node = FileSrc::init();
+    let mut ctx = AudioContext::new().map_err(|e| e.to_string())?;
+    let sample_rate = ctx.sample_rate();
 
-    // Connect to speaker if available
-    if let Some(ref mut dest) = state.speaker_dest {
-        // Start speaker first if not running
-        if !matches!(dest.get_state(), crate::audio_node::AudioNodeState::RUNNING) {
-            dest.start();
-            println!("[Play] Started speaker");
-        }
+    let dest_id = ctx.build_graph(|builder| {
+        let file_node =
+            FileNode::new(path.as_str(), sample_rate).expect("Unable to read audio file");
+        let file = builder.add_node(NodeType::File(file_node));
 
-        // set src node config
-        let dest_node = match dest {
-            AudioNodeEnum::SpeakerDest(dest) => dest,
-            _ => return Err("Speaker not available".to_string()),
-        };
-        src_node.set_config(
-            file_path,
-            dest_node.config.stream_config.sample_rate,
-            dest_node.config.stream_config.channels.into(),
-        );
-        let mut src = AudioNodeEnum::FileSrc(src_node);
+        let mixer = builder.add_node(NodeType::Mixer(MixerNode::with_gain(1.0)));
+        builder.connect(file, mixer);
 
-        // new mixer node (dest node buffer 太小，會掉資料，一定要墊一個 push node)
-        let mixer = Mixer::new(0);
-        let mut mixer_enum = AudioNodeEnum::Mixer(mixer);
+        mixer
+    });
 
-        // Connect source to destination
-        connect(&mut src, &mut mixer_enum).map_err(|e| format!("Connection failed: {}", e))?;
-        connect(&mut mixer_enum, dest).map_err(|e| format!("Connection failed: {}", e))?;
-        println!("[Play] Connected file source to speaker");
+    ctx.resume(dest_id).map_err(|e| e.to_string())?;
 
-        mixer_enum.start();
-        src.start();
-        println!("[Play] Started playback");
+    state.context = Some(ctx);
+    state.current_file = Some(path.clone());
 
-        state.file_src = Some(src);
-        state.current_file = Some(path.clone());
-
-        Ok(format!("Playing: {}", path))
-    } else {
-        Err("Speaker not available".to_string())
-    }
+    Ok(format!("Playing: {}", path))
 }
 
 #[tauri::command]
 fn stop_audio(audio_state: State<'_, Mutex<AudioState>>) -> Result<String, String> {
     let mut state = audio_state.lock().map_err(|e| e.to_string())?;
-
-    if let Some(ref mut src) = state.file_src {
-        src.stop();
-        println!("[Stop] Stopped playback");
-        Ok("Playback stopped".to_string())
-    } else {
-        Err("No audio playing".to_string())
-    }
+    state.context = None;
+    println!("[Stop] Stopped playback");
+    Ok("Playback stopped".to_string())
 }
 
 #[tauri::command]
@@ -144,80 +140,111 @@ fn get_current_file(audio_state: State<'_, Mutex<AudioState>>) -> Result<String,
     }
 }
 
+use rust_audio_api::graph::{GraphBuilder, NodeId};
+
+fn build_ktv_graph(builder: &mut GraphBuilder, sample_rate: u32, music_path: Option<&str>) -> NodeId {
+    // Mic Setup
+    let mic_node = MicrophoneNode::new(sample_rate).expect("Unable to open microphone");
+    let mic = builder.add_node(NodeType::Microphone(mic_node));
+    
+    // Anti-howling filters (HighPass 200Hz + LowPass 6000Hz)
+    let hp = builder.add_node(NodeType::Filter(FilterNode::new(
+        FilterType::HighPass,
+        sample_rate,
+        200.0,
+        0.707,
+    )));
+    builder.connect(mic, hp);
+
+    let lp_mic = builder.add_node(NodeType::Filter(FilterNode::new(
+        FilterType::LowPass,
+        sample_rate,
+        6000.0,
+        0.707,
+    )));
+    builder.connect(hp, lp_mic);
+
+    let mic_gain = builder.add_node(NodeType::Gain(GainNode::new(0.85)));
+    builder.connect(lp_mic, mic_gain);
+
+    let dry_gain = builder.add_node(NodeType::Gain(GainNode::new(0.8)));
+    builder.connect(mic_gain, dry_gain);
+
+    // Echo 
+    let delay_time_sec = 0.12;
+    let delay_frames = (sample_rate as f32 * delay_time_sec) as usize;
+    let delay_units = delay_frames / AUDIO_UNIT_SIZE;
+    let max_delay_units = (sample_rate as usize * 2) / AUDIO_UNIT_SIZE;
+
+    let delay = builder.add_node(NodeType::Delay(DelayNode::new(
+        max_delay_units,
+        delay_units,
+    )));
+    let echo_gain = builder.add_node(NodeType::Gain(GainNode::new(0.4)));
+    let lp = builder.add_node(NodeType::Filter(FilterNode::new(
+        FilterType::LowPass,
+        sample_rate,
+        3500.0,
+        0.707,
+    )));
+
+    builder.connect(mic_gain, delay);
+    builder.connect(delay, echo_gain);
+    builder.connect_feedback(echo_gain, lp);
+    builder.connect(lp, delay);
+
+    // Reverb
+    let ir = generate_karaoke_ir(sample_rate);
+    let convolver_node = ConvolverNode::new(&ir);
+    let convolver = builder.add_node(NodeType::Convolver(convolver_node));
+    let reverb_gain = builder.add_node(NodeType::Gain(GainNode::new(0.35)));
+
+    builder.connect(mic_gain, convolver);
+    builder.connect(convolver, reverb_gain);
+
+    // Mix Output
+    let mixer = builder.add_node(NodeType::Mixer(MixerNode::with_gain(1.0)));
+    builder.connect(dry_gain, mixer);
+    builder.connect(echo_gain, mixer);
+    builder.connect(reverb_gain, mixer);
+
+    // Music Setup (Optional)
+    if let Some(path) = music_path {
+        let file_node = FileNode::new(path, sample_rate).expect("Unable to read audio file");
+        let file = builder.add_node(NodeType::File(file_node));
+        let music_gain = builder.add_node(NodeType::Gain(GainNode::new(0.3)));
+        builder.connect(file, music_gain);
+        builder.connect(music_gain, mixer);
+    }
+
+    mixer
+}
+
 #[tauri::command]
 fn start_mic_only(audio_state: State<'_, Mutex<AudioState>>) -> Result<String, String> {
     let mut state = audio_state.lock().map_err(|e| e.to_string())?;
 
     println!("[Mic] Starting microphone only mode");
 
-    // Stop any existing microphone
-    if let Some(ref mut mic) = state.mic_src {
-        mic.stop();
-    }
-    if let Some(ref mut mixer) = state.mixer {
-        mixer.stop();
-    }
+    state.context = None;
 
-    // Start speaker if not running
-    if let Some(ref mut dest) = state.speaker_dest {
-        if !matches!(dest.get_state(), crate::audio_node::AudioNodeState::RUNNING) {
-            dest.start();
-            println!("[Mic] Started speaker");
-        }
+    let mut ctx = AudioContext::new().map_err(|e| e.to_string())?;
+    let sample_rate = ctx.sample_rate();
 
-        // Get speaker config
-        let dest_config = match dest {
-            AudioNodeEnum::SpeakerDest(dest) => dest.config.clone(),
-            _ => return Err("Speaker not available".to_string()),
-        };
+    let dest_id = ctx.build_graph(|builder| build_ktv_graph(builder, sample_rate, None));
 
-        // Create mic source
-        let mut mic_src = MicSrc::init();
-        mic_src.input_producer_config = Some(dest_config);
+    ctx.resume(dest_id).map_err(|e| e.to_string())?;
+    state.context = Some(ctx);
 
-        // Wrap in enum
-        let mut mic_src_enum = AudioNodeEnum::MicSrc(mic_src);
-
-        // new mixer node
-        let mixer = Mixer::new(0);
-        let mut mixer_enum = AudioNodeEnum::Mixer(mixer);
-
-        // Connect
-        connect(&mut mic_src_enum, &mut mixer_enum)
-            .map_err(|e| format!("Mic->Speaker connection failed: {}", e))?;
-        connect(&mut mixer_enum, dest)
-            .map_err(|e| format!("Mic->Speaker connection failed: {}", e))?;
-        println!("[Mic] Connected microphone to speaker");
-
-        // Start microphone
-        mic_src_enum.start();
-        println!("[Mic] Started microphone");
-        mixer_enum.start();
-        println!("[Mic] Started mixer");
-
-        // Store in state
-        state.mic_src = Some(mic_src_enum);
-
-        Ok("Microphone started".to_string())
-    } else {
-        Err("Speaker not available".to_string())
-    }
+    Ok("Microphone started".to_string())
 }
 
 #[tauri::command]
 fn stop_mic(audio_state: State<'_, Mutex<AudioState>>) -> Result<String, String> {
     let mut state = audio_state.lock().map_err(|e| e.to_string())?;
-
-    println!("[Mic] Stopping microphone");
-
-    if let Some(ref mut mic) = state.mic_src {
-        mic.stop();
-        state.mic_src = None;
-        println!("[Mic] Stopped microphone");
-        Ok("Microphone stopped".to_string())
-    } else {
-        Err("No microphone active".to_string())
-    }
+    state.context = None;
+    println!("[Mic] Stopped microphone");
+    Ok("Microphone stopped".to_string())
 }
 
 #[tauri::command]
@@ -229,116 +256,32 @@ fn start_karaoke(
 
     println!("[Karaoke] Starting karaoke mode with: {}", path);
 
-    // Stop any existing playback
-    if let Some(ref mut src) = state.file_src {
-        src.stop();
-    }
-    if let Some(ref mut mic) = state.mic_src {
-        mic.stop();
-    }
-    if let Some(ref mut mixer) = state.mixer {
-        mixer.stop();
-    }
+    state.context = None;
 
-    // Verify file exists
     let file_path = PathBuf::from(&path);
     if !file_path.exists() {
         return Err(format!("File not found: {}", path));
     }
 
-    // Start speaker if not running
-    if let Some(ref mut dest) = state.speaker_dest {
-        if !matches!(dest.get_state(), crate::audio_node::AudioNodeState::RUNNING) {
-            dest.start();
-            println!("[Karaoke] Started speaker");
-        }
+    let mut ctx = AudioContext::new().map_err(|e| e.to_string())?;
+    let sample_rate = ctx.sample_rate();
 
-        // Get speaker config and clone it to avoid borrowing issues
-        let (sample_rate, channels, dest_config) = match dest {
-            AudioNodeEnum::SpeakerDest(dest) => (
-                dest.config.stream_config.sample_rate,
-                dest.config.stream_config.channels,
-                dest.config.clone(),
-            ),
-            _ => return Err("Speaker not available".to_string()),
-        };
+    let dest_id = ctx.build_graph(|builder| build_ktv_graph(builder, sample_rate, Some(path.as_str())));
 
-        let mixer = Mixer::new(0);
+    ctx.resume(dest_id).map_err(|e| e.to_string())?;
 
-        let mut file_src = FileSrc::init();
-        file_src.set_config(file_path, sample_rate, channels.into());
+    state.context = Some(ctx);
+    state.current_file = Some(path.clone());
 
-        let mut mic_src = MicSrc::init();
-        mic_src.input_producer_config = Some(dest_config);
-
-        let mut mixer_enum = AudioNodeEnum::Mixer(mixer);
-        let mut file_src_enum = AudioNodeEnum::FileSrc(file_src);
-        let mut mic_src_enum = AudioNodeEnum::MicSrc(mic_src);
-
-        connect(&mut mixer_enum, dest)
-            .map_err(|e| format!("Mixer->Speaker connection failed: {}", e))?;
-        println!("[Karaoke] Connected mixer to speaker");
-
-        // Connect: file_src -> mixer (input 0)
-        connect(&mut file_src_enum, &mut mixer_enum)
-            .map_err(|e| format!("File->Mixer connection failed: {}", e))?;
-        println!("[Karaoke] Connected file source to mixer");
-
-        // Connect: mic_src -> mixer (input 1)
-        connect(&mut mic_src_enum, &mut mixer_enum)
-            .map_err(|e| format!("Mic->Mixer connection failed: {}", e))?;
-        println!("[Karaoke] Connected mic source to mixer");
-
-        // Start all nodes
-        mixer_enum.start();
-        println!("[Karaoke] Started mixer");
-
-        file_src_enum.start();
-        println!("[Karaoke] Started file playback");
-
-        mic_src_enum.start();
-        println!("[Karaoke] Started microphone");
-
-        // Store in state
-        state.mixer = Some(mixer_enum);
-        state.file_src = Some(file_src_enum);
-        state.mic_src = Some(mic_src_enum);
-        state.current_file = Some(path.clone());
-
-        Ok(format!("Karaoke started: {}", path))
-    } else {
-        Err("Speaker not available".to_string())
-    }
+    Ok(format!("Karaoke started: {}", path))
 }
 
 #[tauri::command]
 fn stop_karaoke(audio_state: State<'_, Mutex<AudioState>>) -> Result<String, String> {
     let mut state = audio_state.lock().map_err(|e| e.to_string())?;
-
-    println!("[Karaoke] Stopping karaoke mode");
-
-    // Stop all nodes
-    if let Some(ref mut mic) = state.mic_src {
-        mic.stop();
-        println!("[Karaoke] Stopped microphone");
-    }
-
-    if let Some(ref mut src) = state.file_src {
-        src.stop();
-        println!("[Karaoke] Stopped file playback");
-    }
-
-    if let Some(ref mut mixer) = state.mixer {
-        mixer.stop();
-        println!("[Karaoke] Stopped mixer");
-    }
-
-    // Clear state
-    state.mic_src = None;
-    state.file_src = None;
-    state.mixer = None;
+    state.context = None;
     state.current_file = None;
-
+    println!("[Karaoke] Stopped karaoke mode");
     Ok("Karaoke stopped".to_string())
 }
 

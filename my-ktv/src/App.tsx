@@ -1,202 +1,206 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import "./App.css";
 
+type Mode = "idle" | "playing_music" | "mic_only" | "karaoke";
+
 function App() {
-  const [currentFile, setCurrentFile] = useState<string>("No file selected");
-  const [statusMsg, setStatusMsg] = useState<string>("");
-  const [isPlaying, setIsPlaying] = useState<boolean>(false);
-  const [isKaraoke, setIsKaraoke] = useState<boolean>(false);
-  const [isMicOnly, setIsMicOnly] = useState<boolean>(false);
+  const [currentFile, setCurrentFile] = useState<string | null>(null);
+  const [mode, setMode] = useState<Mode>("idle");
+  const [statusMsg, setStatusMsg] = useState<string>("Ready to rock");
 
-  async function handleUpload() {
+  useEffect(() => {
+    // Check if there's an already loaded file on init
+    invoke<string>("get_current_file")
+      .then((file) => {
+        if (file && file !== "No file loaded") {
+          setCurrentFile(file);
+        }
+      })
+      .catch(console.error);
+  }, []);
+
+  const handleUpload = async () => {
     try {
-      const filePath = await invoke<string>("upload_audio_file");
-      setCurrentFile(filePath);
-      setStatusMsg(`File selected: ${filePath.split(/[/\\]/).pop()}`);
-    } catch (error) {
-      setStatusMsg(`Upload failed: ${error}`);
+      const path = await invoke<string>("upload_audio_file");
+      if (path) {
+        setCurrentFile(path);
+        setStatusMsg("File loaded successfully");
+      }
+    } catch (err) {
+      console.error(err);
+      setStatusMsg("Upload canceled or failed");
     }
-  }
+  };
 
-  async function handlePlay() {
-    if (currentFile === "No file selected") {
-      setStatusMsg("Please select a file first!");
+  const handlePlayMusic = async () => {
+    if (!currentFile) {
+      alert("Please upload an audio file first!");
+      return;
+    }
+    
+    // Stop any current activity
+    if (mode === "mic_only") await invoke("stop_mic");
+    if (mode === "karaoke") await invoke("stop_karaoke");
+    
+    try {
+      await invoke("play_audio_file", { path: currentFile });
+      setMode("playing_music");
+      setStatusMsg("Playing Music");
+    } catch (err) {
+      console.error(err);
+      setStatusMsg(`Error: ${err}`);
+    }
+  };
+
+  const handleStopMusic = async () => {
+    try {
+      await invoke("stop_audio");
+      setMode("idle");
+      setStatusMsg("Music Stopped");
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const handleStartMic = async () => {
+    // Stop any current activity
+    if (mode === "playing_music") await invoke("stop_audio");
+    if (mode === "karaoke") await invoke("stop_karaoke");
+
+    try {
+      await invoke("start_mic_only");
+      setMode("mic_only");
+      setStatusMsg("Microphone Active");
+    } catch (err) {
+      console.error(err);
+      setStatusMsg(`Error: ${err}`);
+    }
+  };
+
+  const handleStopMic = async () => {
+    try {
+      await invoke("stop_mic");
+      setMode("idle");
+      setStatusMsg("Microphone Stopped");
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const handleStartKaraoke = async () => {
+    if (!currentFile) {
+      alert("Please upload a backing track first!");
       return;
     }
 
-    try {
-      const result = await invoke<string>("play_audio_file", { path: currentFile });
-      setStatusMsg(result);
-      setIsPlaying(true);
-    } catch (error) {
-      setStatusMsg(`Play failed: ${error}`);
-      setIsPlaying(false);
-    }
-  }
-
-  async function handleStop() {
-    try {
-      const result = await invoke<string>("stop_audio");
-      setStatusMsg(result);
-      setIsPlaying(false);
-    } catch (error) {
-      setStatusMsg(`Stop failed: ${error}`);
-    }
-  }
-
-  async function handleStartMic() {
-    try {
-      const result = await invoke<string>("start_mic_only");
-      setStatusMsg(result);
-      setIsMicOnly(true);
-    } catch (error) {
-      setStatusMsg(`Mic start failed: ${error}`);
-      setIsMicOnly(false);
-    }
-  }
-
-  async function handleStopMic() {
-    try {
-      const result = await invoke<string>("stop_mic");
-      setStatusMsg(result);
-      setIsMicOnly(false);
-    } catch (error) {
-      setStatusMsg(`Mic stop failed: ${error}`);
-    }
-  }
-
-  async function handleStartKaraoke() {
-    if (currentFile === "No file selected") {
-      setStatusMsg("Please select a music file first!");
-      return;
-    }
+    // Stop any current activity
+    if (mode === "playing_music") await invoke("stop_audio");
+    if (mode === "mic_only") await invoke("stop_mic");
 
     try {
-      const result = await invoke<string>("start_karaoke", { path: currentFile });
-      setStatusMsg(result);
-      setIsKaraoke(true);
-    } catch (error) {
-      setStatusMsg(`Karaoke start failed: ${error}`);
-      setIsKaraoke(false);
+      await invoke("start_karaoke", { path: currentFile });
+      setMode("karaoke");
+      setStatusMsg("Karaoke Mode ON 🔥");
+    } catch (err) {
+      console.error(err);
+      setStatusMsg(`Error: ${err}`);
     }
-  }
+  };
 
-  async function handleStopKaraoke() {
+  const handleStopKaraoke = async () => {
     try {
-      const result = await invoke<string>("stop_karaoke");
-      setStatusMsg(result);
-      setIsKaraoke(false);
-    } catch (error) {
-      setStatusMsg(`Karaoke stop failed: ${error}`);
+      await invoke("stop_karaoke");
+      setMode("idle");
+      setStatusMsg("Karaoke Stopped");
+    } catch (err) {
+      console.error(err);
     }
-  }
+  };
+
+  // Helper to extract filename from path
+  const getFilename = (path: string) => {
+    return path.split(/[/\\]/).pop();
+  };
 
   return (
-    <main className="container">
-      <h1>My KTV - Audio Player</h1>
+    <>
+      <div className="orb orb-1"></div>
+      <div className="orb orb-2"></div>
+      <main className="app-container">
+        <header className="header">
+          <h1>MyKTV Studio</h1>
+          <p>Next-Gen Rust Audio Experience</p>
+        </header>
 
-      <div className="card">
-        <h2>🎵 File Controls</h2>
-
-        <div className="file-info">
-          <p><strong>Selected File:</strong></p>
-          <p className="file-path">{currentFile.split(/[/\\]/).pop() || "None"}</p>
-        </div>
-
-        <div className="button-group">
-          <button onClick={handleUpload} className="btn-upload">
-            📁 Upload Audio File
-          </button>
-
-          <button
-            onClick={handlePlay}
-            disabled={currentFile === "No file selected" || isPlaying || isKaraoke}
-            className="btn-play"
-          >
-            ▶️ Play
-          </button>
-
-          <button
-            onClick={handleStop}
-            disabled={!isPlaying}
-            className="btn-stop"
-          >
-            ⏹️ Stop
-          </button>
-        </div>
-
-        {statusMsg && (
-          <div className={`status-message ${statusMsg.includes("failed") ? "error" : "success"}`}>
-            {statusMsg}
+        <section className="track-container">
+          <div className="track-info">
+            <div className="track-icon">🎵</div>
+            <div className="track-details">
+              <h3>Target Track</h3>
+              <p>{currentFile ? getFilename(currentFile) : "No File Selected"}</p>
+            </div>
           </div>
-        )}
-      </div>
-
-      <div className="card karaoke-card">
-        <h2>🎤 Karaoke Mode</h2>
-        <p className="karaoke-info">
-          Mix background music with microphone input for singing along!
-        </p>
-
-        <div className="button-group">
-          <button
-            onClick={handleStartKaraoke}
-            disabled={currentFile === "No file selected" || isKaraoke || isPlaying}
-            className="btn-karaoke-start"
-          >
-            🎤 Start Karaoke
+          <button className="btn btn-upload" onClick={handleUpload}>
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+              <polyline points="17 8 12 3 7 8"></polyline>
+              <line x1="12" y1="3" x2="12" y2="15"></line>
+            </svg>
+            Select Track
           </button>
+        </section>
 
-          <button
-            onClick={handleStopKaraoke}
-            disabled={!isKaraoke}
-            className="btn-karaoke-stop"
-          >
-            ⏹️ Stop Karaoke
-          </button>
+        <section className="controls-grid">
+          {/* Music Control */}
+          <div className="control-card">
+            <h4>Music Only</h4>
+            {mode === "playing_music" ? (
+              <button className="btn btn-stop" onClick={handleStopMusic}>
+                ■ Stop Music
+              </button>
+            ) : (
+              <button className="btn btn-play" onClick={handlePlayMusic} disabled={!currentFile}>
+                ▶ Play Music
+              </button>
+            )}
+          </div>
+
+          {/* Mic Control */}
+          <div className="control-card">
+            <h4>Mic Check</h4>
+            {mode === "mic_only" ? (
+              <button className="btn btn-stop" onClick={handleStopMic}>
+                ■ Turn Off
+              </button>
+            ) : (
+              <button className="btn btn-mic" onClick={handleStartMic}>
+                🎙️ Start Mic
+              </button>
+            )}
+          </div>
+
+          {/* Karaoke Control */}
+          <div className="control-card">
+            <h4>Full KTV</h4>
+            {mode === "karaoke" ? (
+              <button className="btn btn-stop" onClick={handleStopKaraoke}>
+                ■ End Session
+              </button>
+            ) : (
+              <button className="btn btn-karaoke" onClick={handleStartKaraoke} disabled={!currentFile}>
+                ✨ Start KTV
+              </button>
+            )}
+          </div>
+        </section>
+
+        <div className={`status-bar ${mode !== "idle" ? "status-playing" : ""}`}>
+          {mode !== "idle" && <span style={{ marginRight: "10px" }}>⚡</span>}
+          {statusMsg}
         </div>
-
-        <div className="karaoke-status">
-          <p><strong>Music:</strong> {isKaraoke ? "🎵 Playing" : "⏸️ Stopped"}</p>
-          <p><strong>Microphone:</strong> {isKaraoke ? "🎤 Active" : "🔇 Inactive"}</p>
-        </div>
-      </div>
-
-      <div className="card mic-test-card">
-        <h2>🎙️ Microphone Test</h2>
-        <p className="mic-test-info">
-          Test your microphone alone without background music
-        </p>
-
-        <div className="button-group">
-          <button
-            onClick={handleStartMic}
-            disabled={isMicOnly || isKaraoke || isPlaying}
-            className="btn-mic-start"
-          >
-            🎙️ Start Mic
-          </button>
-
-          <button
-            onClick={handleStopMic}
-            disabled={!isMicOnly}
-            className="btn-mic-stop"
-          >
-            ⏹️ Stop Mic
-          </button>
-        </div>
-
-        <div className="mic-test-status">
-          <p><strong>Status:</strong> {isMicOnly ? "🎙️ Mic Active" : "🔇 Mic Inactive"}</p>
-        </div>
-      </div>
-
-      <div className="info">
-        <p>Supported formats: MP3, WAV, FLAC, OGG, M4A</p>
-        <p>Status: {isPlaying ? "🔊 Playing" : isKaraoke ? "🎤 Karaoke Mode" : isMicOnly ? "🎙️ Mic Test" : "⏸️ Stopped"}</p>
-      </div>
-    </main>
+      </main>
+    </>
   );
 }
 
