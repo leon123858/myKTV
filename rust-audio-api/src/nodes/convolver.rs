@@ -7,6 +7,7 @@ use thread_priority::*;
 pub struct ConvolverConfig {
     pub stereo: bool,
     pub growth_exponent: u32,
+    pub block_0_size: usize,
 }
 
 impl Default for ConvolverConfig {
@@ -14,6 +15,7 @@ impl Default for ConvolverConfig {
         Self {
             stereo: true,
             growth_exponent: 2,
+            block_0_size: AUDIO_UNIT_SIZE * 2,
         }
     }
 }
@@ -78,8 +80,10 @@ struct TaskMsg {
 
 pub struct ConvolverNode {
     stereo: bool,
-    block_0_l: [f32; AUDIO_UNIT_SIZE * 2],
-    block_0_r: [f32; AUDIO_UNIT_SIZE * 2],
+    block_0_l: Vec<f32>,
+    block_0_r: Vec<f32>,
+    b0_out_l: Vec<f32>,
+    b0_out_r: Vec<f32>,
     task_tx: Sender<TaskMsg>,
 
     carry_buffer_l: Arc<Vec<AtomicF32>>,
@@ -183,7 +187,7 @@ impl ConvolverNode {
 
     pub fn with_config(ir: &[[f32; 2]], config: ConvolverConfig) -> Self {
         let stereo = config.stereo;
-        let (b0_l_vec, b0_r_vec, blocks_info) = Self::partition_ir(ir, config.growth_exponent);
+        let (b0_l_vec, b0_r_vec, blocks_info) = Self::partition_ir(ir, config.growth_exponent, config.block_0_size);
 
         let max_block_size = blocks_info
             .last()
@@ -226,12 +230,11 @@ impl ConvolverNode {
         let drop_count = Arc::new(AtomicUsize::new(0));
         let shared_read_ptr = Arc::new(AtomicUsize::new(0));
 
-        let mut b0_l = [0.0f32; AUDIO_UNIT_SIZE * 2];
-        let mut b0_r = [0.0f32; AUDIO_UNIT_SIZE * 2];
-        if b0_l_vec.len() >= AUDIO_UNIT_SIZE * 2 {
-            b0_l.copy_from_slice(&b0_l_vec[..AUDIO_UNIT_SIZE * 2]);
-            b0_r.copy_from_slice(&b0_r_vec[..AUDIO_UNIT_SIZE * 2]);
-        }
+        let b0_l = b0_l_vec.clone();
+        let b0_r = b0_r_vec.clone();
+        let b0_out_len = AUDIO_UNIT_SIZE + config.block_0_size - 1;
+        let b0_out_l = vec![0.0f32; b0_out_len];
+        let b0_out_r = vec![0.0f32; b0_out_len];
 
         let max_queue_len = 2048;
         let (task_tx, rx) = bounded::<TaskMsg>(max_queue_len);
@@ -395,6 +398,8 @@ impl ConvolverNode {
             stereo,
             block_0_l: b0_l,
             block_0_r: b0_r,
+            b0_out_l,
+            b0_out_r,
             task_tx,
             carry_buffer_l,
             carry_buffer_r,
@@ -416,12 +421,12 @@ impl ConvolverNode {
     fn partition_ir(
         ir: &[[f32; 2]],
         growth_exponent: u32,
+        b0_len: usize,
     ) -> (Vec<f32>, Vec<f32>, Vec<PartitionBlock>) {
         let mut blocks = Vec::new();
         let mut offset = 0;
         let growth_factor = growth_exponent.max(1) as usize;
 
-        let b0_len = AUDIO_UNIT_SIZE * 2;
         let b0_l = Self::take_slice_padded(ir, offset, b0_len, 0);
         let b0_r = Self::take_slice_padded(ir, offset, b0_len, 1);
         offset += b0_len;
@@ -503,32 +508,34 @@ impl ConvolverNode {
 
         let mask = self.carry_mask;
 
-        const B0_IR_LEN: usize = AUDIO_UNIT_SIZE * 2;
-        const B0_OUT_LEN: usize = AUDIO_UNIT_SIZE + B0_IR_LEN - 1;
-        let mut b0_out_l = [0.0f32; B0_OUT_LEN];
-        let mut b0_out_r = [0.0f32; B0_OUT_LEN];
+        let b0_len = self.block_0_l.len();
+        let b0_out_len = AUDIO_UNIT_SIZE + b0_len - 1;
+        self.b0_out_l[..b0_out_len].fill(0.0);
+        if self.stereo {
+            self.b0_out_r[..b0_out_len].fill(0.0);
+        }
 
         for i in 0..AUDIO_UNIT_SIZE {
             let il = in_l[i];
             let ir = in_r[i];
-            let out_l_slice = &mut b0_out_l[i..i + B0_IR_LEN];
+            let out_l_slice = &mut self.b0_out_l[i..i + b0_len];
 
             for (out_l, &b0l) in out_l_slice.iter_mut().zip(self.block_0_l.iter()) {
                 *out_l += il * b0l;
             }
             if self.stereo {
-                let out_r_slice = &mut b0_out_r[i..i + B0_IR_LEN];
+                let out_r_slice = &mut self.b0_out_r[i..i + b0_len];
                 for (out_r, &b0r) in out_r_slice.iter_mut().zip(self.block_0_r.iter()) {
                     *out_r += ir * b0r;
                 }
             }
         }
 
-        for i in 0..B0_OUT_LEN {
+        for i in 0..b0_out_len {
             let idx = (self.carry_read_ptr + i) & mask;
-            self.carry_buffer_l[idx].fetch_add(b0_out_l[i], Ordering::Relaxed);
+            self.carry_buffer_l[idx].fetch_add(self.b0_out_l[i], Ordering::Relaxed);
             if self.stereo {
-                self.carry_buffer_r[idx].fetch_add(b0_out_r[i], Ordering::Relaxed);
+                self.carry_buffer_r[idx].fetch_add(self.b0_out_r[i], Ordering::Relaxed);
             }
         }
 

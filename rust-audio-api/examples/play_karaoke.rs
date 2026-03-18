@@ -142,8 +142,11 @@ fn main() {
         // ── Reverb (合成殘響) ──
         let ir_path = "examples/resource/plate01.wav";
         let max_reverb_len = Some((sample_rate as f32 * 1.2) as usize); // 限制長度為 1.2 秒
-        let convolver_node = ConvolverNode::from_file(ir_path, sample_rate, max_reverb_len)
-            .expect("無法建構 ConvolverNode");
+        let mut config = rust_audio_api::nodes::ConvolverConfig::default();
+        config.block_0_size = AUDIO_UNIT_SIZE * 4; // 動態提高 B0 以避免 worker dropout 與 CPU 抖動
+        let convolver_node =
+            ConvolverNode::from_file_with_config(ir_path, sample_rate, max_reverb_len, config)
+                .expect("無法建構 ConvolverNode");
         let convolver = builder.add_node(NodeType::Convolver(convolver_node));
         let reverb_gain = builder.add_node(NodeType::Gain(GainNode::new(0.25))); // 降低 Reverb 音量
         builder.connect(mic_gain, convolver);

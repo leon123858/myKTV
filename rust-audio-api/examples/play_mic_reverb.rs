@@ -22,6 +22,7 @@ fn main() {
             ConvolverConfig {
                 stereo: true,
                 growth_exponent: 2,
+                ..Default::default()
             },
         )
         .expect("無法建構 ConvolverNode");
