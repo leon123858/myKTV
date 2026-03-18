@@ -17,7 +17,7 @@ use crate::types::AudioUnit;
 ///     gain_id = Some(gain);
 ///     gain
 /// });
-/// 
+///
 /// // Dynamically change the gain to 1.0 (full volume)
 /// ctx.control_sender().send(
 ///     rust_audio_api::graph::ControlMessage::SetParameter(

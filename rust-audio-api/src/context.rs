@@ -80,7 +80,9 @@ impl AudioContext {
     /// Creates a new `AudioContext` with the default output device and sample rate.
     pub fn new() -> Result<Self, anyhow::Error> {
         let host = cpal::default_host();
-        let device = host.default_output_device().expect("Default output device not found");
+        let device = host
+            .default_output_device()
+            .expect("Default output device not found");
         let supported_config = device.default_output_config()?;
         let sample_rate = supported_config.sample_rate();
 
@@ -202,11 +204,15 @@ impl AudioContext {
                 }
 
                 let elapsed_micros = start_time.elapsed().as_micros();
-                let max_allowed_micros = (frame_count as f64 / sample_rate as f64 * 1_000_000.0) as u128;
-                
-                let load_percent = ((elapsed_micros as f64 / max_allowed_micros as f64) * 100.0) as u8;
-                monitor.current_load_percent.store(load_percent, Ordering::Relaxed);
-                
+                let max_allowed_micros =
+                    (frame_count as f64 / sample_rate as f64 * 1_000_000.0) as u128;
+
+                let load_percent =
+                    ((elapsed_micros as f64 / max_allowed_micros as f64) * 100.0) as u8;
+                monitor
+                    .current_load_percent
+                    .store(load_percent, Ordering::Relaxed);
+
                 if elapsed_micros > max_allowed_micros {
                     monitor.late_callbacks.fetch_add(1, Ordering::Relaxed);
                 }

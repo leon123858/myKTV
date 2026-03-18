@@ -1,4 +1,4 @@
-use crate::types::{empty_audio_unit, AudioUnit};
+use crate::types::{AudioUnit, empty_audio_unit};
 use std::collections::VecDeque;
 
 /// A node that delays the input signal by a specified number of audio blocks.
@@ -25,7 +25,7 @@ use std::collections::VecDeque;
 ///     delay_id = Some(delay);
 ///     delay
 /// });
-/// 
+///
 /// // Dynamically change the delay to 1.0 seconds
 /// let new_units = (sample_rate as f32 * 1.0) as usize / rust_audio_api::types::AUDIO_UNIT_SIZE;
 /// ctx.control_sender().send(
@@ -50,7 +50,7 @@ impl DelayNode {
     pub fn new(max_delay_units: usize, default_delay_units: usize) -> Self {
         let delay_units = default_delay_units.min(max_delay_units);
         let mut queue = VecDeque::with_capacity(max_delay_units + 1);
-        
+
         // Seed the queue with silent Units based on initial delay_units
         for _ in 0..delay_units {
             queue.push_back(empty_audio_unit());
@@ -69,7 +69,7 @@ impl DelayNode {
     /// If it is smaller, old blocks are discarded.
     pub fn set_delay_units(&mut self, units: usize) {
         let target_units = units.min(self.max_delay_units);
-        
+
         if target_units > self.delay_units {
             // Increase delay: add silent Units
             for _ in 0..(target_units - self.delay_units) {
@@ -100,7 +100,7 @@ impl DelayNode {
             output.copy_from_slice(&delayed_unit);
         } else {
             // Fallback mechanism; theoretically, the queue should always have at least one unit
-            dasp::slice::equilibrium(&mut output[..]); 
+            dasp::slice::equilibrium(&mut output[..]);
         }
     }
 }

@@ -20,7 +20,7 @@ use crate::types::AudioUnit;
 ///     mixer_id = Some(mixer);
 ///     mixer
 /// });
-/// 
+///
 /// // Dynamically reduce the master mix volume
 /// ctx.control_sender().send(
 ///     rust_audio_api::graph::ControlMessage::SetParameter(

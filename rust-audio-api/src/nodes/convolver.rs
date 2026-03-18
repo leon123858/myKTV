@@ -166,9 +166,9 @@ impl ConvolverNode {
         if let Some(max) = max_len {
             if ir.len() > max {
                 ir.truncate(max);
-                
+
                 // Apply fade-out to avoid artifacts from abrupt truncation (fade-out last 100ms)
-                let fade_len = (target_sample_rate as f32 * 0.1) as usize; 
+                let fade_len = (target_sample_rate as f32 * 0.1) as usize;
                 let fade_len = fade_len.min(max);
                 for i in 0..fade_len {
                     let idx = max - 1 - i;
@@ -204,7 +204,8 @@ impl ConvolverNode {
 
     pub fn with_config(ir: &[[f32; 2]], config: ConvolverConfig) -> Self {
         let stereo = config.stereo;
-        let (b0_l_vec, b0_r_vec, blocks_info) = Self::partition_ir(ir, config.growth_exponent, config.block_0_size);
+        let (b0_l_vec, b0_r_vec, blocks_info) =
+            Self::partition_ir(ir, config.growth_exponent, config.block_0_size);
 
         let max_block_size = blocks_info
             .last()
@@ -277,7 +278,10 @@ impl ConvolverNode {
 
             std::thread::spawn(move || {
                 if let Err(e) = set_current_thread_priority(ThreadPriority::Max) {
-                    eprintln!("Warning: Failed to set convolution block thread priority: {:?}", e);
+                    eprintln!(
+                        "Warning: Failed to set convolution block thread priority: {:?}",
+                        e
+                    );
                 }
 
                 let max_len2 = max_block_size * 2;
@@ -483,7 +487,7 @@ impl ConvolverNode {
 
             // offset represents current input audio length
             // current_size * growth_factor + AUDIO_UNIT_SIZE represents the threshold for growth
-            // When this condition is met, the new size can be calculated without waiting, 
+            // When this condition is met, the new size can be calculated without waiting,
             // preventing the block from becoming too large and starving the main thread.
             if offset >= current_size * growth_factor + AUDIO_UNIT_SIZE {
                 current_size *= growth_factor;

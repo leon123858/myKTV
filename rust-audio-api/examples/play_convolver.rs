@@ -19,9 +19,9 @@ fn main() {
         let ir_path = "examples/resource/hall01.wav";
         println!("Reading IR file: {}", ir_path);
 
-        let convolver_node =
-            ConvolverNode::from_file(ir_path, sample_rate, None).expect("Unable to construct ConvolverNode");
-        
+        let convolver_node = ConvolverNode::from_file(ir_path, sample_rate, None)
+            .expect("Unable to construct ConvolverNode");
+
         let drop_count = convolver_node.clone_drop_count();
 
         std::thread::spawn(move || {

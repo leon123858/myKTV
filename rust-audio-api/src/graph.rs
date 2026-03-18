@@ -261,8 +261,6 @@ impl StaticGraph {
             let sources = &self.inputs_map[i];
             let feedback_sources = &self.feedback_inputs_map[i];
 
-
-
             let has_input = if sources.is_empty() && feedback_sources.is_empty() {
                 false
             } else {

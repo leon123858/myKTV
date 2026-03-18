@@ -181,7 +181,10 @@ fn main() {
                 );
                 last_late_callbacks = current_late_callbacks;
             } else if load_percent > 80 {
-                println!("⚠️ Audio thread load too high! Current CPU load: {}%", load_percent);
+                println!(
+                    "⚠️ Audio thread load too high! Current CPU load: {}%",
+                    load_percent
+                );
             }
         }
     });

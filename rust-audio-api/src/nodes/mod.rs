@@ -1,5 +1,6 @@
 use crate::types::AudioUnit;
 
+pub mod convolver;
 pub mod delay;
 pub mod file;
 pub mod filter;
@@ -8,8 +9,8 @@ pub mod microphone;
 pub mod mixer;
 pub mod oscillator;
 pub mod resampler;
-pub mod convolver;
 
+pub use convolver::{ConvolverConfig, ConvolverNode};
 pub use delay::DelayNode;
 pub use file::FileNode;
 pub use filter::{FilterNode, FilterType};
@@ -17,7 +18,6 @@ pub use gain::GainNode;
 pub use microphone::MicrophoneNode;
 pub use mixer::MixerNode;
 pub use oscillator::OscillatorNode;
-pub use convolver::{ConvolverNode, ConvolverConfig};
 
 /// Represents the different types of audio nodes available in the library.
 ///

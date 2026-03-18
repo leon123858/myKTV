@@ -13,7 +13,7 @@ fn test_delay_node_delay_behavior() {
     let mut output = empty_audio_unit();
     let mut input1 = empty_audio_unit();
     let mut input2 = empty_audio_unit();
-    
+
     // 構造兩個獨特的 input 以供追蹤
     for i in 0..AUDIO_UNIT_SIZE {
         input1[i] = [1.0, 1.0];
@@ -83,7 +83,7 @@ fn test_delay_node_set_delay_units_decrease() {
     // 如果把 delay 從 2 縮減到 0，會 pop 掉 2 個，也就是隊列裡的 [靜音, input1] 都會被丟棄，隊列變空。
     // 如果再 push 一個靜音，pop 就只會有剛 push 的靜音，所以 input1 就被切掉了（跳躍播放）。
     // 在真實 delay time 修改中這也是正常的作法之一（直接跳轉，雖然可能有 pop 音）。
-    
+
     delay_node.set_delay_units(0);
 
     let mut input2 = empty_audio_unit();

@@ -27,7 +27,10 @@ fn main() {
         let delay_units = delay_frames / AUDIO_UNIT_SIZE;
         let max_delay_units = (sample_rate as usize * 2) / AUDIO_UNIT_SIZE; // Max 2 seconds delay
 
-        println!("Setting echo delay: {} seconds ({} units)", delay_time_sec, delay_units);
+        println!(
+            "Setting echo delay: {} seconds ({} units)",
+            delay_time_sec, delay_units
+        );
         let delay_node = DelayNode::new(max_delay_units, delay_units);
         let delay = builder.add_node(NodeType::Delay(delay_node));
 
@@ -44,11 +47,10 @@ fn main() {
         builder.connect(delay, feedback_gain);
         builder.connect_feedback(feedback_gain, delay);
 
-
         // Create Mixer node to combine Dry and Wet signals
         let mixer_node = MixerNode::with_gain(1.0);
         let mixer = builder.add_node(NodeType::Mixer(mixer_node));
-        
+
         builder.connect(dry_gain, mixer);
         builder.connect(wet_gain, mixer);
 

@@ -23,7 +23,9 @@ impl MicrophoneNode {
     /// - `target_sample_rate`: The sample rate requested by the `AudioContext`.
     pub fn new(target_sample_rate: u32) -> Result<Self, anyhow::Error> {
         let host = cpal::default_host();
-        let device = host.default_input_device().expect("Microphone device not found");
+        let device = host
+            .default_input_device()
+            .expect("Microphone device not found");
         let supported_config = device.default_input_config()?;
         let input_rate = supported_config.sample_rate();
         let config: StreamConfig = supported_config.into();

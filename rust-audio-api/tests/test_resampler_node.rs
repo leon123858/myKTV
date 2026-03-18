@@ -83,7 +83,11 @@ fn test_resampling_5hz_to_10hz() {
 
     // Verify RingIter works independently
     let first_frame = ring_iter.next();
-    assert_eq!(first_frame, [1.0, 1.0], "RingIter should return the pushed samples");
+    assert_eq!(
+        first_frame,
+        [1.0, 1.0],
+        "RingIter should return the pushed samples"
+    );
 
     // Re-initialize for the converter test with remaining samples
     let ring_buffer = dasp::ring_buffer::Fixed::from([[0.0; 2]; 100]);
@@ -96,7 +100,11 @@ fn test_resampling_5hz_to_10hz() {
         let frame = converter.next();
         output.push(frame[0]);
     }
-    
+
     let has_signal = output.iter().any(|&x| x > 0.1);
-    assert!(has_signal, "Output should eventually contain non-zero samples. Last 10 samples: {:?}", &output[390..]);
+    assert!(
+        has_signal,
+        "Output should eventually contain non-zero samples. Last 10 samples: {:?}",
+        &output[390..]
+    );
 }

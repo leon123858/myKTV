@@ -34,7 +34,7 @@ struct ChannelState {
 /// A biquad IIR filter node.
 ///
 /// `FilterNode` provides standard LowPass, HighPass, and BandPass filtering.
-/// It supports dynamic updates of cutoff frequency and Q factor via 
+/// It supports dynamic updates of cutoff frequency and Q factor via
 /// [`ControlMessage::SetParameter`](crate::graph::ControlMessage::SetParameter).
 ///
 /// # Example
@@ -52,7 +52,7 @@ struct ChannelState {
 ///     filter_id = Some(id);
 ///     id
 /// });
-/// 
+///
 /// // Dynamically sweep the filter cutoff frequency to 2000 Hz
 /// ctx.control_sender().send(
 ///     rust_audio_api::graph::ControlMessage::SetParameter(
@@ -167,9 +167,7 @@ impl FilterNode {
     /// Performs Direct Form I biquad filtering on a single sample
     #[inline(always)]
     fn process_sample(coeffs: &BiquadCoefficients, state: &mut ChannelState, x: f32) -> f32 {
-        let y = coeffs.b0 * x
-            + coeffs.b1 * state.x1
-            + coeffs.b2 * state.x2
+        let y = coeffs.b0 * x + coeffs.b1 * state.x1 + coeffs.b2 * state.x2
             - coeffs.a1 * state.y1
             - coeffs.a2 * state.y2;
 

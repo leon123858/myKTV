@@ -80,7 +80,10 @@ fn test_filter_no_input_outputs_silence() {
     filter.process(None, &mut output);
 
     let expected = empty_audio_unit();
-    assert_eq!(output, expected, "Filter with no input should output silence");
+    assert_eq!(
+        output, expected,
+        "Filter with no input should output silence"
+    );
 }
 
 #[test]
