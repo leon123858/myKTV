@@ -354,7 +354,7 @@ impl ConvolverNode {
                         0
                     };
 
-                    let fade_len = 16;
+                    const FADE_LEN: usize = AUDIO_UNIT_SIZE / 4;
 
                     for i in skip..(len2 - 1) {
                         let mut sample_l = res_l[i];
@@ -362,8 +362,8 @@ impl ConvolverNode {
 
                         // fade in
                         let current_offset = i - skip;
-                        if current_offset < fade_len {
-                            let gain = current_offset as f32 / fade_len as f32;
+                        if current_offset < FADE_LEN {
+                            let gain = current_offset as f32 / FADE_LEN as f32;
                             sample_l *= gain;
                             if worker_stereo {
                                 sample_r *= gain;
