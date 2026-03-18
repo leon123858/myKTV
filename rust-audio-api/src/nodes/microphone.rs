@@ -15,15 +15,15 @@ pub struct MicrophoneNode {
 impl MicrophoneNode {
     pub fn new(target_sample_rate: u32) -> Result<Self, anyhow::Error> {
         let host = cpal::default_host();
-        let device = host.default_input_device().expect("找不到麥克風設備");
+        let device = host.default_input_device().expect("Microphone device not found");
         let supported_config = device.default_input_config()?;
         let input_rate = supported_config.sample_rate();
         let config: StreamConfig = supported_config.into();
         let channels = config.channels as usize;
 
-        println!("麥克風採樣率: {:?}", input_rate);
+        println!("Microphone sample rate: {:?}", input_rate);
 
-        // 約 1 秒的緩衝量
+        // Approx 1 second of buffer
         let capacity = input_rate as usize * channels;
         let ringbuf = HeapRb::<f32>::new(capacity);
         let (mut producer, consumer) = ringbuf.split();
@@ -37,7 +37,7 @@ impl MicrophoneNode {
                     }
                 }
             },
-            |err| eprintln!("麥克風擷取發生錯誤: {}", err),
+            |err| eprintln!("Microphone capture error: {}", err),
             None,
         )?;
 
@@ -81,7 +81,7 @@ impl MicrophoneNode {
             }
         }
 
-        // 再透過 dasp slice 操作一次性安全疊加 gain
+        // Apply gain safely using dasp slice operations
         dasp::slice::map_in_place(&mut output[..], |frame| {
             [frame[0] * self.gain, frame[1] * self.gain]
         });

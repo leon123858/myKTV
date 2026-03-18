@@ -13,7 +13,7 @@ impl NodeId {
     }
 }
 
-/// 泛型化參數，支援動態修訂節點的各種屬性
+/// Generic parameter, supporting dynamic updates of node properties
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum NodeParameter {
     Gain(f32),
@@ -25,8 +25,8 @@ pub enum NodeParameter {
     // Play, Stop, etc.
 }
 
-/// UI 或 Main Thread 用來發送給 Audio Thread 的指令。
-/// 由於不支援拓樸改變，這裡只能發送「參數修改」指令。
+/// Commands sent by the UI or Main Thread to the Audio Thread.
+/// Topology changes are not supported; only "parameter update" commands can be sent.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum ControlMessage {
     SetParameter(NodeId, NodeParameter),
@@ -36,7 +36,7 @@ pub struct GraphBuilder {
     nodes: Vec<NodeType>,
     // edges: [source_node_index] -> [destination_node_index]
     edges: Vec<Vec<usize>>,
-    // 反饋邊：(source_node_index, destination_node_index)
+    // Feedback edges: (source_node_index, destination_node_index)
     feedback_edges: Vec<(usize, usize)>,
     id_to_index: HashMap<NodeId, usize>,
 }
@@ -51,17 +51,17 @@ impl GraphBuilder {
         }
     }
 
-    /// 加入一個節點，回傳它的唯一 ID
+    /// Adds a node and returns its unique ID
     pub fn add_node(&mut self, node: NodeType) -> NodeId {
         let index = self.nodes.len();
         self.nodes.push(node);
-        self.edges.push(Vec::new()); // 每一個節點初始化一個空的 output 邊列表
+        self.edges.push(Vec::new()); // Initialize an empty output edge list for each node
         let id = NodeId::new();
         self.id_to_index.insert(id, index);
         id
     }
 
-    /// 將 source 接到 destination 的上方 (source 是 dest 的 input)
+    /// Connects source to destination (source becomes an input of dest)
     pub fn connect(&mut self, source: NodeId, destination: NodeId) {
         if let (Some(&src_idx), Some(&dest_idx)) = (
             self.id_to_index.get(&source),
@@ -71,9 +71,9 @@ impl GraphBuilder {
         }
     }
 
-    /// 建立反饋連線（back-edge），不參與拓樸排序。
-    /// 反饋邊在執行時讀取 source 前一個 frame 的 output buffer，
-    /// 引入自然的 1-block 延遲（在音訊反饋路徑中是標準做法）。
+    /// Establishes a feedback connection (back-edge), excluded from topological sorting.
+    /// Feedback edges read the output buffer of the source from the previous frame during execution,
+    /// introducing a natural 1-block delay (standard practice in audio feedback paths).
     pub fn connect_feedback(&mut self, source: NodeId, destination: NodeId) {
         if let (Some(&src_idx), Some(&dest_idx)) = (
             self.id_to_index.get(&source),
@@ -83,13 +83,13 @@ impl GraphBuilder {
         }
     }
 
-    /// 拓樸排序並生成極致效能的 StaticGraph，並進行 Buffer 重用優化
+    /// Topological sorting and generation of high-performance StaticGraph with buffer reuse optimization
     pub fn build(
         self,
         destination_id: NodeId,
         msg_receiver: Receiver<ControlMessage>,
     ) -> StaticGraph {
-        // 1. 建立 petgraph 以進行拓樸排序（僅使用正常邊，不包含反饋邊）
+        // 1. Create petgraph for topological sorting (only normal edges, no feedback edges)
         let mut pet_graph = petgraph::graph::DiGraph::<(), ()>::new();
         let mut pet_indices = Vec::with_capacity(self.nodes.len());
 
@@ -102,7 +102,7 @@ impl GraphBuilder {
                 pet_graph.add_edge(pet_indices[src], pet_indices[dest], ());
             }
         }
-        // 反饋邊不加入 petgraph，這樣 toposort 就不會因為環而失敗
+        // Feedback edges are not added to petgraph, preventing toposort failure from cycles
 
         let sorted_pet_indices = petgraph::algo::toposort(&pet_graph, None)
             .expect("Audio graph contains a cycle! Use connect_feedback() for feedback loops.");
@@ -113,8 +113,8 @@ impl GraphBuilder {
             .collect();
         let final_dest_idx = self.id_to_index[&destination_id];
 
-        // 2. Buffer 配置優化：找出每個 Node 最後一次被誰當作 Input 使用
-        //    注意：反饋邊的 source 需要保留 buffer 到最後（因為下一個 frame 還要用）
+        // 2. Buffer allocation optimization: identify the last usage of each node as an input
+        //    Note: source buffers for feedback edges must be preserved until the end (for use in the next frame)
         let mut last_usage = vec![0; self.nodes.len()];
         for (exec_idx, &node_idx) in sorted_indices.iter().enumerate() {
             let mut last_used_at = exec_idx;
@@ -123,9 +123,9 @@ impl GraphBuilder {
                 last_used_at = last_used_at.max(dest_exec_idx);
             }
             if node_idx == final_dest_idx {
-                last_used_at = usize::MAX; // 最終目標的 Buffer 必須保留到最後回傳
+                last_used_at = usize::MAX; // The buffer for the final destination must be kept until return
             }
-            // 如果這個 node 是某條反饋邊的 source，其 buffer 也不能被重用
+            // If this node is a source for any feedback edge, its buffer cannot be reused
             for &(fb_src, _) in &self.feedback_edges {
                 if fb_src == node_idx {
                     last_used_at = usize::MAX;
@@ -139,9 +139,9 @@ impl GraphBuilder {
         let mut next_buffer_id = 0;
         let mut active_nodes = Vec::new();
 
-        // 模擬執行並分配 Buffer
+        // Simulating execution and buffer allocation
         for (exec_idx, &node_idx) in sorted_indices.iter().enumerate() {
-            // 從 Free List 拿，或者宣告新的 Buffer
+            // Acquire from Free List or allocate a new buffer
             let assigned_buffer = if let Some(buf_id) = buffer_free_list.pop() {
                 buf_id
             } else {
@@ -152,7 +152,7 @@ impl GraphBuilder {
             buffer_assignment[node_idx] = assigned_buffer;
             active_nodes.push(node_idx);
 
-            // 檢查哪些 Node 的使命已達標，可將它們的 Buffer 釋出重用
+            // Check which nodes are no longer needed, releasing their buffers for reuse
             active_nodes.retain(|&active_node| {
                 if last_usage[active_node] == exec_idx {
                     buffer_free_list.push(buffer_assignment[active_node]);
@@ -166,7 +166,7 @@ impl GraphBuilder {
         let buffers_count = next_buffer_id;
         let buffers = vec![empty_audio_unit(); buffers_count];
 
-        // 3. 把 edge 關係反轉，變成：[destination_node] -> Vec<[source_node]>
+        // 3. Reverse edge relationships to: [destination_node] -> Vec<[source_node]>
         let mut inputs_map = vec![Vec::new(); self.nodes.len()];
         for (src_idx, targets) in self.edges.iter().enumerate() {
             for &dest_idx in targets {
@@ -174,15 +174,15 @@ impl GraphBuilder {
             }
         }
 
-        // 4. 建立反饋邊的反向映射：[destination_node] -> Vec<[source_node]>
+        // 4. Create reverse mapping for feedback edges: [destination_node] -> Vec<[source_node]>
         let mut feedback_inputs_map = vec![Vec::new(); self.nodes.len()];
         for &(src_idx, dest_idx) in &self.feedback_edges {
             feedback_inputs_map[dest_idx].push(src_idx);
         }
 
-        // 5. 為反饋邊的 source 配置 "前一個 frame" 備份 buffer
+        // 5. Configure "previous frame" backup buffers for feedback edge sources
         //    prev_frame_buffers: node_idx -> Option<AudioUnit>
-        //    只有被標記為反饋 source 的節點才需要
+        //    Only nodes marked as feedback sources need this
         let mut feedback_source_set = vec![false; self.nodes.len()];
         for &(src_idx, _) in &self.feedback_edges {
             feedback_source_set[src_idx] = true;
@@ -213,39 +213,39 @@ impl GraphBuilder {
     }
 }
 
-/// 完全靜態、零記憶體配置的音訊運行核心
+/// Fully static, zero-allocation audio runtime core
 pub struct StaticGraph {
     nodes: Vec<NodeType>,
-    /// 共用優化後的 AudioUnit Buffers
+    /// Shared and optimized AudioUnit buffers
     node_buffers: Vec<AudioUnit>,
-    /// 紀錄 node_idx 對應到哪個 buffer id
+    /// Maps node_idx to its corresponding buffer ID
     buffer_assignment: Vec<usize>,
-    /// 對於每個節點 i，`inputs_map[i]` 紀錄了誰要當它的 input（正常邊）
+    /// For each node i, `inputs_map[i]` records its inputs (normal edges)
     inputs_map: Vec<Vec<usize>>,
-    /// 對於每個節點 i，`feedback_inputs_map[i]` 紀錄了誰要透過反饋邊當它的 input
+    /// For each node i, `feedback_inputs_map[i]` records its feedback inputs
     feedback_inputs_map: Vec<Vec<usize>>,
-    /// 反饋邊 source 節點的前一 frame 備份 buffer
+    /// Previous frame backup buffer for feedback source nodes
     prev_frame_buffers: Vec<Option<AudioUnit>>,
     final_destination_index: usize,
     msg_receiver: Receiver<ControlMessage>,
     id_to_index: HashMap<NodeId, usize>,
-    /// 節點正確的計算順序（由拓樸排序決定）
+    /// Correct processing order (determined by topological sort)
     execution_order: Vec<usize>,
 }
 
 impl StaticGraph {
-    /// 當 CPAL 或外層迴圈要求要下一個 64-frame chunks，就呼叫這裡
+    /// Called when CPAL or outer loop requests the next 64-frame chunk
     #[inline(always)]
     pub fn pull_next_unit(&mut self) -> &AudioUnit {
-        // 1. 先處理所有非阻塞的控制訊息 (如改音量)
+        // 1. Process all non-blocking control messages (e.g., volume changes)
         while let Ok(msg) = self.msg_receiver.try_recv() {
             self.handle_message(msg);
         }
 
-        // 2. 依照拓樸排序的安全評估順序來計算每個 Node
-        // 這裡不用遞迴回頭 Call，而是平坦的 For 迴圈 (Cache 極度友好)
+        // 2. Compute nodes following the topological sort order
+        // Avoids recursive calls, using a flat for-loop (Cache friendly)
         for &i in &self.execution_order {
-            // 合併所有先備 Input Buffer（正常邊 + 反饋邊）
+            // Combine all input buffers (normal + feedback)
             let mut combined_input = empty_audio_unit();
             let sources = &self.inputs_map[i];
             let feedback_sources = &self.feedback_inputs_map[i];
@@ -255,13 +255,13 @@ impl StaticGraph {
             let has_input = if sources.is_empty() && feedback_sources.is_empty() {
                 false
             } else {
-                // 正常邊的 input
+                // Inputs from normal edges
                 for &src_idx in sources {
                     let src_buf_idx = self.buffer_assignment[src_idx];
                     let src_buf = &self.node_buffers[src_buf_idx];
                     dasp::slice::add_in_place(&mut combined_input[..], &src_buf[..]);
                 }
-                // 反饋邊的 input（讀取前一 frame 的 buffer）
+                // Inputs from feedback edges (reading previous frame's buffer)
                 for &src_idx in feedback_sources {
                     if let Some(ref prev_buf) = self.prev_frame_buffers[src_idx] {
                         dasp::slice::add_in_place(&mut combined_input[..], &prev_buf[..]);
@@ -270,7 +270,7 @@ impl StaticGraph {
                 true
             };
 
-            // 執行 Node 邏輯並寫入其專屬 (或者重用分配的) Output Buffer
+            // Execute node logic and write to its assigned output buffer
             let input_ref = if has_input {
                 Some(&combined_input)
             } else {
@@ -282,7 +282,7 @@ impl StaticGraph {
             self.nodes[i].process(input_ref, output_ref);
         }
 
-        // 3. 在回傳前，備份所有反饋 source 節點的 output 到 prev_frame_buffers
+        // 3. Backup output of all feedback source nodes before returning
         for (node_idx, prev_buf) in self.prev_frame_buffers.iter_mut().enumerate() {
             if let Some(buf) = prev_buf {
                 let src_buf_idx = self.buffer_assignment[node_idx];
@@ -290,7 +290,7 @@ impl StaticGraph {
             }
         }
 
-        // 4. 回傳 Destination Node 所產生出來的結果
+        // 4. Return result from the destination node
         let final_buf_idx = self.buffer_assignment[self.final_destination_index];
         &self.node_buffers[final_buf_idx]
     }
@@ -300,7 +300,7 @@ impl StaticGraph {
             ControlMessage::SetParameter(node_id, parameter) => {
                 if let Some(&index) = self.id_to_index.get(&node_id) {
                     if let Some(node) = self.nodes.get_mut(index) {
-                        // Enum dispatching (靜態派發)
+                        // Enum dispatching (static dispatch)
                         match (node, parameter) {
                             (NodeType::Gain(g), NodeParameter::Gain(val)) => g.set_gain(val),
                             (NodeType::Oscillator(o), NodeParameter::Gain(val)) => o.set_gain(val),
@@ -310,8 +310,8 @@ impl StaticGraph {
                             }
                             (NodeType::Filter(f), NodeParameter::Cutoff(val)) => f.set_cutoff(val),
                             (NodeType::Filter(f), NodeParameter::Q(val)) => f.set_q(val),
-                            // Convolver 參數動態更新不支援（因需要重算 IR FFT），暫時不處理
-                            // 若後續擴充別的屬性可以在這裡實作
+                            // Dynamic updates for Convolver are not supported (requires IR FFT recalculation)
+                            // Implement other property updates here if expanded later
                             // (NodeType::Oscillator(o), NodeParameter::Frequency(val)) => o.set_frequency(val),
                             _ => {}
                         }

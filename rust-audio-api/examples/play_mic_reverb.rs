@@ -10,8 +10,8 @@ fn main() {
     println!("AudioContext initialized with sample rate: {}", sample_rate);
 
     let dest_id = ctx.build_graph(|builder| {
-        println!("建立麥克風節點");
-        let mic_node = MicrophoneNode::new(sample_rate).expect("無法存取麥克風");
+        println!("Creating microphone node");
+        let mic_node = MicrophoneNode::new(sample_rate).expect("Unable to access microphone");
         let mic = builder.add_node(NodeType::Microphone(mic_node));
 
         let ir_path = "examples/resource/hall01.wav";
@@ -25,7 +25,7 @@ fn main() {
                 ..Default::default()
             },
         )
-        .expect("無法建構 ConvolverNode");
+        .expect("Unable to construct ConvolverNode");
         let drop_count = convolver_node.clone_drop_count();
 
         std::thread::spawn(move || {
@@ -36,7 +36,7 @@ fn main() {
 
                 if current_drop > last_drop {
                     println!(
-                        "⚠️ Reverb 處理來不及！總掉幀次數: {} (新增: {})",
+                        "⚠️ Reverb processing too slow! Total drops: {} (New: {})",
                         current_drop,
                         current_drop - last_drop
                     );
@@ -64,7 +64,7 @@ fn main() {
 
             if current_late_callbacks > last_late_callbacks {
                 println!(
-                    "⚠️ 音訊主執行緒處理太慢！延遲發生次數: {} (新增 {}), 當前 CPU 負載: {}%",
+                    "⚠️ Audio thread too slow! Late callbacks count: {} (New {}), Current CPU load: {}%",
                     current_late_callbacks,
                     current_late_callbacks - last_late_callbacks,
                     load_percent
@@ -72,14 +72,14 @@ fn main() {
                 last_late_callbacks = current_late_callbacks;
             } else if load_percent > 80 {
                 // optional warning if approaching critical load
-                println!("⚠️ 音訊主執行緒負載過高！當前 CPU 負載: {}%", load_percent);
+                println!("⚠️ Audio thread load too high! Current CPU load: {}%", load_percent);
             }
         }
     });
 
     println!("========================================");
-    println!("🎤 正在播放帶有合成 Reverb 特效的麥克風聲音中...");
-    println!("⌨️  按下 Enter 鍵結束程式...");
+    println!("🎤 Capturing microphone with synthetic Reverb effect...");
+    println!("Press Enter to exit...");
     println!("========================================");
 
     let _ = std::io::stdin().read_line(&mut String::new());

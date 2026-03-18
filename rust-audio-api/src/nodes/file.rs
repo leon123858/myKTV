@@ -40,7 +40,7 @@ impl FileNode {
             .iter()
             .find(|t| t.codec_params.codec != symphonia::core::codecs::CODEC_TYPE_NULL)
             .cloned()
-            .ok_or_else(|| anyhow::anyhow!("未找到音訊軌"))?;
+            .ok_or_else(|| anyhow::anyhow!("No audio track found"))?;
 
         let track_id = track.id;
         let mut decoder =
@@ -49,9 +49,9 @@ impl FileNode {
         let channels = track.codec_params.channels.unwrap_or_default().count();
         let sample_rate = track.codec_params.sample_rate.unwrap_or(target_sample_rate);
 
-        println!("音檔採樣率: {:?}", sample_rate);
+        println!("Audio file sample rate: {:?}", sample_rate);
 
-        // 建立 2 秒的 raw f32 緩衝
+        // Create 2-second raw f32 buffer
         let capacity = sample_rate as usize * channels * 2;
         let ringbuf = HeapRb::<f32>::new(capacity);
         let (mut producer, consumer) = ringbuf.split();
@@ -143,7 +143,7 @@ impl FileNode {
             }
         }
 
-        // 再透過 dasp slice 操作一次性安全疊加 gain
+        // Apply gain safely using dasp slice operations
         dasp::slice::map_in_place(&mut output[..], |frame| {
             [frame[0] * self.gain, frame[1] * self.gain]
         });

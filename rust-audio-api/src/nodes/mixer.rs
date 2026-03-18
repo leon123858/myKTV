@@ -17,8 +17,8 @@ impl MixerNode {
         self.gain = gain;
     }
 
-    /// Mixer Node 是一個被動節點，接收 Graph 已經加總好的 `input` (混音結果)，
-    /// 接著套用 Gain，並進行 Clipping/Limiting，確保最終輸出不破音。
+    /// MixerNode is a passive node that receives the aggregated `input` (the mixed result) from the graph,
+    /// then applies Gain and performing Clipping/Limiting to ensure the final output doesn't distort.
     #[inline(always)]
     pub fn process(&mut self, input: Option<&AudioUnit>, output: &mut AudioUnit) {
         if let Some(in_unit) = input {
@@ -32,7 +32,7 @@ impl MixerNode {
                 ]
             });
         } else {
-            // 如果沒有上游輸入，就輸出靜音
+            // If no upstream input, output silence
             dasp::slice::equilibrium(&mut output[..]);
         }
     }

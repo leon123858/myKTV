@@ -12,7 +12,7 @@ impl DelayNode {
         let delay_units = default_delay_units.min(max_delay_units);
         let mut queue = VecDeque::with_capacity(max_delay_units + 1);
         
-        // 依照初始設定的 delay_units 塞入相對應數量的靜音 Unit
+        // Seed the queue with silent Units based on initial delay_units
         for _ in 0..delay_units {
             queue.push_back(empty_audio_unit());
         }
@@ -28,12 +28,12 @@ impl DelayNode {
         let target_units = units.min(self.max_delay_units);
         
         if target_units > self.delay_units {
-            // 需要增加 delay，補上靜音 Unit
+            // Increase delay: add silent Units
             for _ in 0..(target_units - self.delay_units) {
-                self.queue.push_front(empty_audio_unit()); // 推到最前面，代表這些是剛進來要被 delay 的
+                self.queue.push_front(empty_audio_unit()); // Push to front; these are the new delayed units
             }
         } else if target_units < self.delay_units {
-            // 需要減少 delay，直接丟棄舊的 Unit (前面的代表最老的)
+            // Decrease delay: discard old Units (front represents the oldest)
             for _ in 0..(self.delay_units - target_units) {
                 self.queue.pop_front();
             }
@@ -43,19 +43,20 @@ impl DelayNode {
 
     #[inline(always)]
     pub fn process(&mut self, input: Option<&AudioUnit>, output: &mut AudioUnit) {
-        // 核心演算法: 先將 input (或靜音) push 進 queue
+        // Core algorithm: push input (or silence) into the queue
         if let Some(in_unit) = input {
             self.queue.push_back(*in_unit);
         } else {
             self.queue.push_back(empty_audio_unit());
         }
 
-        // 然後從 queue pop 出一個 unit 作為 current output
-        // 若 delay_units 為 0，則 queue 裡面只會有剛放進去的一塊，pop 出來就等於完全沒 delay
+        // Then pop a unit from the queue as current output
+        // If delay_units is 0, the queue will only contain the unit just pushed;
+        // popping it results in zero delay.
         if let Some(delayed_unit) = self.queue.pop_front() {
             output.copy_from_slice(&delayed_unit);
         } else {
-            // 防呆機制，理論上 queue 至少會有一塊剛被 push 進去的
+            // Fallback mechanism; theoretically, the queue should always have at least one unit
             dasp::slice::equilibrium(&mut output[..]); 
         }
     }

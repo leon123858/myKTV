@@ -33,7 +33,7 @@ pub struct AudioContext {
 impl AudioContext {
     pub fn new() -> Result<Self, anyhow::Error> {
         let host = cpal::default_host();
-        let device = host.default_output_device().expect("找不到音訊輸出設備");
+        let device = host.default_output_device().expect("Default output device not found");
         let supported_config = device.default_output_config()?;
         let sample_rate = supported_config.sample_rate();
 
@@ -56,7 +56,7 @@ impl AudioContext {
         self.sample_rate
     }
 
-    /// 提供 Graph Builder 給使用者建構靜態圖
+    /// Provides GraphBuilder for user to construct a static graph
     pub fn build_graph<F>(&mut self, builder_func: F) -> NodeId
     where
         F: FnOnce(&mut GraphBuilder) -> NodeId,
@@ -66,11 +66,11 @@ impl AudioContext {
             self.graph_builder = Some(gb);
             dest_id
         } else {
-            panic!("GraphBuilder 已經被消耗，無法重複建立拓樸");
+            panic!("GraphBuilder already consumed, cannot rebuild topology");
         }
     }
 
-    /// 開始播放音訊 (產生 StaticGraph 並交由 Cpal Audio Thread)
+    /// Starts audio playback (generates StaticGraph and hands it to CPAL audio thread)
     pub fn resume(&mut self, destination_id: NodeId) -> Result<(), anyhow::Error> {
         if self.stream.is_some() {
             return Ok(());
@@ -82,10 +82,10 @@ impl AudioContext {
         let sample_format = supported_config.sample_format();
         let config: StreamConfig = supported_config.into();
 
-        // 取出 GraphBuilder 並產生 StaticGraph
+        // Take GraphBuilder and generate StaticGraph
         let builder = self.graph_builder.take().expect("GraphBuilder is missing");
         let (tx, rx) = unbounded();
-        self.msg_sender = tx; // 更新主執行緒持有的控制發送端
+        self.msg_sender = tx; // Update control sender held by the main thread
 
         let static_graph = builder.build(destination_id, rx);
 
@@ -93,7 +93,7 @@ impl AudioContext {
             SampleFormat::F32 => self.build_stream::<f32>(&device, &config, static_graph)?,
             SampleFormat::I16 => self.build_stream::<i16>(&device, &config, static_graph)?,
             SampleFormat::U16 => self.build_stream::<u16>(&device, &config, static_graph)?,
-            _ => return Err(anyhow::anyhow!("不支援的音訊輸出設備格式")),
+            _ => return Err(anyhow::anyhow!("Unsupported audio output device format")),
         };
 
         stream.play()?;
@@ -156,14 +156,14 @@ impl AudioContext {
                     monitor.late_callbacks.fetch_add(1, Ordering::Relaxed);
                 }
             },
-            |err| eprintln!("音訊串流發生錯誤: {}", err),
+            |err| eprintln!("Audio stream error: {}", err),
             None,
         )?;
 
         Ok(stream)
     }
 
-    /// 回傳可以用來發送控制訊息 (非阻塞) 的 Sender
+    /// Returns a Sender for sending control messages (non-blocking)
     pub fn control_sender(&self) -> Sender<ControlMessage> {
         self.msg_sender.clone()
     }

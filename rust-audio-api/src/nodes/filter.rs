@@ -1,7 +1,7 @@
 use crate::types::AudioUnit;
 use std::f32::consts::PI;
 
-/// 支援的 biquad 濾波器類型
+/// Supported biquad filter types
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FilterType {
     LowPass,
@@ -9,7 +9,7 @@ pub enum FilterType {
     BandPass,
 }
 
-/// Biquad IIR 濾波器係數 (Direct Form I)
+/// Biquad IIR filter coefficients (Direct Form I)
 #[derive(Debug, Clone, Copy)]
 struct BiquadCoefficients {
     b0: f32,
@@ -19,7 +19,7 @@ struct BiquadCoefficients {
     a2: f32,
 }
 
-/// 每聲道獨立的延遲狀態
+/// Per-channel delay state
 #[derive(Debug, Clone, Copy, Default)]
 struct ChannelState {
     x1: f32, // input z^-1
@@ -28,7 +28,7 @@ struct ChannelState {
     y2: f32, // output z^-2
 }
 
-/// Biquad 濾波器節點，支援 LowPass / HighPass / BandPass
+/// Biquad filter node, supports LowPass / HighPass / BandPass
 pub struct FilterNode {
     filter_type: FilterType,
     sample_rate: f32,
@@ -58,25 +58,25 @@ impl FilterNode {
         node
     }
 
-    /// 重新設定截止頻率（自動更新係數）
+    /// Sets the cutoff frequency (updates coefficients automatically)
     pub fn set_cutoff(&mut self, cutoff_hz: f32) {
         self.cutoff = cutoff_hz;
         self.recalculate_coefficients();
     }
 
-    /// 重新設定品質因子 Q（自動更新係數）
+    /// Sets the quality factor Q (updates coefficients automatically)
     pub fn set_q(&mut self, q: f32) {
         self.q = q;
         self.recalculate_coefficients();
     }
 
-    /// 切換濾波器類型（自動更新係數）
+    /// Sets the filter type (updates coefficients automatically)
     pub fn set_filter_type(&mut self, filter_type: FilterType) {
         self.filter_type = filter_type;
         self.recalculate_coefficients();
     }
 
-    /// 根據 Audio Cookbook (Robert Bristow-Johnson) 公式計算 biquad 係數
+    /// Calculates biquad coefficients based on Audio Cookbook (Robert Bristow-Johnson) formulas
     fn recalculate_coefficients(&mut self) {
         let w0 = 2.0 * PI * self.cutoff / self.sample_rate;
         let cos_w0 = w0.cos();
@@ -114,7 +114,7 @@ impl FilterNode {
             }
         };
 
-        // 正規化：所有係數除以 a0
+        // Normalization: divide all coefficients by a0
         let inv_a0 = 1.0 / a0;
         self.coeffs = BiquadCoefficients {
             b0: b0 * inv_a0,
@@ -125,7 +125,7 @@ impl FilterNode {
         };
     }
 
-    /// 對單一樣本執行 Direct Form I biquad 濾波
+    /// Performs Direct Form I biquad filtering on a single sample
     #[inline(always)]
     fn process_sample(coeffs: &BiquadCoefficients, state: &mut ChannelState, x: f32) -> f32 {
         let y = coeffs.b0 * x

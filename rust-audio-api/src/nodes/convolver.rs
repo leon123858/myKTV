@@ -137,7 +137,7 @@ impl ConvolverNode {
                 ir.push([l, r]);
             }
         } else {
-            panic!("unexpected ir file format")
+            panic!("Unexpected IR file format")
         }
 
         let mut ir = if spec.sample_rate != target_sample_rate {
@@ -150,13 +150,13 @@ impl ConvolverNode {
             if ir.len() > max {
                 ir.truncate(max);
                 
-                // 加入淡出效果避免截斷產生的不自然感 (淡出最後 100ms)
+                // Apply fade-out to avoid artifacts from abrupt truncation (fade-out last 100ms)
                 let fade_len = (target_sample_rate as f32 * 0.1) as usize; 
                 let fade_len = fade_len.min(max);
                 for i in 0..fade_len {
                     let idx = max - 1 - i;
                     let fade_gain = i as f32 / fade_len as f32;
-                    // 使用指數型或平滑淡出，這裡使用簡單線性
+                    // Use exponential or smooth fade-out; here we use simple linear
                     ir[idx][0] *= fade_gain;
                     ir[idx][1] *= fade_gain;
                 }
@@ -260,7 +260,7 @@ impl ConvolverNode {
 
             std::thread::spawn(move || {
                 if let Err(e) = set_current_thread_priority(ThreadPriority::Max) {
-                    eprintln!("警告: 無法提升卷積區塊執行緒優先權: {:?}", e);
+                    eprintln!("Warning: Failed to set convolution block thread priority: {:?}", e);
                 }
 
                 let max_len2 = max_block_size * 2;
@@ -464,9 +464,10 @@ impl ConvolverNode {
 
             offset += len;
 
-            // offset 表示目前輸入聲音長度
-            // current_size * growth_factor + AUDIO_UNIT_SIZE 表示增長後要等待多少聲音長度
-            // 當不等式成立，表示新的 size 不需要等待可以直接取出計算，避免成長後太大，反而要等 main thread 輸入聲音
+            // offset represents current input audio length
+            // current_size * growth_factor + AUDIO_UNIT_SIZE represents the threshold for growth
+            // When this condition is met, the new size can be calculated without waiting, 
+            // preventing the block from becoming too large and starving the main thread.
             if offset >= current_size * growth_factor + AUDIO_UNIT_SIZE {
                 current_size *= growth_factor;
             }

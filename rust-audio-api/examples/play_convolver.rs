@@ -12,22 +12,22 @@ fn main() {
     println!("AudioContext initialized with sample rate: {}", sample_rate);
 
     let dest_id = ctx.build_graph(|builder| {
-        println!("載入音檔: {}", file_path);
-        let file_node = FileNode::new(file_path, sample_rate).expect("無法讀取音檔");
+        println!("Loading audio file: {}", file_path);
+        let file_node = FileNode::new(file_path, sample_rate).expect("Unable to read audio file");
         let file = builder.add_node(NodeType::File(file_node));
 
         let ir_path = "examples/resource/hall01.wav";
-        println!("讀取 IR 檔案: {}", ir_path);
+        println!("Reading IR file: {}", ir_path);
 
         let convolver_node =
-            ConvolverNode::from_file(ir_path, sample_rate, None).expect("無法建構 ConvolverNode");
+            ConvolverNode::from_file(ir_path, sample_rate, None).expect("Unable to construct ConvolverNode");
         
         let drop_count = convolver_node.clone_drop_count();
 
         std::thread::spawn(move || {
             loop {
                 std::thread::sleep(Duration::from_secs(1));
-                println!("目前的 Drop Count: {}", drop_count.load(Ordering::Relaxed));
+                println!("Current Drop Count: {}", drop_count.load(Ordering::Relaxed));
             }
         });
 
@@ -44,8 +44,8 @@ fn main() {
     ctx.resume(dest_id).unwrap();
 
     println!("========================================");
-    println!("正在播放帶有多重回聲(Convolver)特效的音樂中...");
-    println!("按下 Enter 鍵結束程式...");
+    println!("Playing music with multi-echo (Convolver) effect...");
+    println!("Press Enter to exit...");
     println!("========================================");
 
     let _ = std::io::stdin().read_line(&mut String::new());

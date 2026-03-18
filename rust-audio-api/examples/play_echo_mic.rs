@@ -3,69 +3,69 @@ use rust_audio_api::nodes::{DelayNode, GainNode, MicrophoneNode, MixerNode, Node
 use rust_audio_api::types::AUDIO_UNIT_SIZE;
 
 fn main() {
-    // 1. 建立 Context, 其內部已綁定預設輸出設備 (Speaker)
+    // 1. Create Context, which binds to the default output device (Speaker)
     let mut ctx = AudioContext::new().unwrap();
     let sample_rate = ctx.sample_rate();
 
     println!("AudioContext initialized with sample rate: {}", sample_rate);
 
-    // 2. 靜態建構 AudioGraph (Pull Mode)
+    // 2. Static AudioGraph construction (Pull Mode)
     let dest_id = ctx.build_graph(|builder| {
-        // 建立麥克風節點來收音
-        println!("建立 麥克風 (Microphone) 節點");
-        let mic_node = MicrophoneNode::new(sample_rate).expect("無法開啟麥克風");
+        // Create microphone node
+        println!("Creating Microphone node");
+        let mic_node = MicrophoneNode::new(sample_rate).expect("Unable to open microphone");
         let mic = builder.add_node(NodeType::Microphone(mic_node));
 
-        // 原音 (Dry 音量)
+        // Dry signal (Vocal volume)
         let dry_gain = builder.add_node(NodeType::Gain(GainNode::new(0.8)));
         builder.connect(mic, dry_gain);
 
-        // Echo 分支 (Wet)
-        // 延遲 130ms (0.13 秒)
+        // Echo branch (Wet)
+        // Delay 130ms (0.13 seconds)
         let delay_time_sec = 0.13;
         let delay_frames = (sample_rate as f32 * delay_time_sec) as usize;
         let delay_units = delay_frames / AUDIO_UNIT_SIZE;
         let max_delay_units = (sample_rate as usize * 2) / AUDIO_UNIT_SIZE; // Max 2 seconds delay
 
-        println!("設定回音延遲: {} 秒 ({} units)", delay_time_sec, delay_units);
+        println!("Setting echo delay: {} seconds ({} units)", delay_time_sec, delay_units);
         let delay_node = DelayNode::new(max_delay_units, delay_units);
         let delay = builder.add_node(NodeType::Delay(delay_node));
 
-        // 延遲音的音量要比原音低，形成殘響感
+        // Volume of the delayed sound should be lower than the dry signal
         let wet_gain = builder.add_node(NodeType::Gain(GainNode::new(0.4)));
 
-        // 加入 feedback loop: delay 回授並衰減，產生漸漸變小聲的連續迴音
+        // Add feedback loop: delay output is fed back and attenuated, creating decaying echoes
         let feedback_gain = builder.add_node(NodeType::Gain(GainNode::new(0.4)));
 
         builder.connect(mic, delay);
         builder.connect(delay, wet_gain);
 
-        // 將 delay 輸出接到 feedback_gain，再以 feedback 特殊邊接回 delay，形成 echo cycle
+        // Connect delay output to feedback_gain, then use feedback edge to connect back to delay
         builder.connect(delay, feedback_gain);
         builder.connect_feedback(feedback_gain, delay);
 
 
-        // 建立 Mixer 節點將 Dry 與 Wet 結合
+        // Create Mixer node to combine Dry and Wet signals
         let mixer_node = MixerNode::with_gain(1.0);
         let mixer = builder.add_node(NodeType::Mixer(mixer_node));
         
         builder.connect(dry_gain, mixer);
         builder.connect(wet_gain, mixer);
 
-        // Master Gain 總音量
+        // Master Gain
         let master_gain = builder.add_node(NodeType::Gain(GainNode::new(0.9)));
         builder.connect(mixer, master_gain);
 
         master_gain
     });
 
-    // 3. 啟動 Audio Thread
+    // 3. Start Audio Thread
     ctx.resume(dest_id).unwrap();
 
     println!("========================================");
-    println!("🎤 正在播放麥克風 Echo 效果...");
-    println!("🗣️  對著麥克風講話會聽到 130ms 延遲的回音");
-    println!("⌨️  按下 Enter 鍵結束程式...");
+    println!("🎤 Microphone Echo effect active...");
+    println!("🗣️  Speak into the microphone to hear 130ms delayed echoes");
+    println!("Press Enter to exit...");
     println!("========================================");
 
     let _ = std::io::stdin().read_line(&mut String::new());

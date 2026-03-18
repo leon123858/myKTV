@@ -17,7 +17,7 @@ pub struct OscillatorNode {
 
 impl OscillatorNode {
     pub fn new(sample_rate: f64, frequency: f64) -> Self {
-        // 設定 ringbuf，大概 0.5 秒的緩衝 (例如 48000 Hz => 24000)
+        // Set ringbuf capacity for approx 0.5s buffer (e.g., 48000 Hz => 24000)
         let capacity = (sample_rate * 0.5) as usize;
         let ringbuf = HeapRb::<[f32; 2]>::new(capacity);
         let (mut producer, consumer) = ringbuf.split();
@@ -28,7 +28,7 @@ impl OscillatorNode {
         thread::spawn(move || {
             let mut sig = signal::rate(sample_rate).const_hz(frequency).sine();
             while running_clone.load(Ordering::Relaxed) {
-                // 如果 buffer 滿了，稍微暫停一下讓 Audio Thread 消耗 (不 push，避免高 CPU 佔用)
+                // If buffer is full, sleep briefly to let Audio Thread consume (prevents high CPU usage)
                 if producer.is_full() {
                     thread::sleep(Duration::from_millis(5));
                     continue;
@@ -36,7 +36,7 @@ impl OscillatorNode {
 
                 let sample = sig.next() as f32;
                 let frame = [sample, sample];
-                let _ = producer.try_push(frame); // 如果滿了會直接忽略 (由上方的 sleep 處理主要回壓)
+                let _ = producer.try_push(frame); // Ignore if full (sleep handles backpressure)
             }
         });
 
@@ -51,7 +51,7 @@ impl OscillatorNode {
         self.gain = gain;
     }
 
-    /// Oscillator 是主動節點 (Source)，它不受 input 影響。
+    /// Oscillator is an active node (Source); it is unaffected by input.
     #[inline(always)]
     pub fn process(&mut self, _input: Option<&AudioUnit>, output: &mut AudioUnit) {
         dasp::slice::map_in_place(&mut output[..], |_| {
