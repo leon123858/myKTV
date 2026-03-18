@@ -145,6 +145,17 @@ impl ConvolverNode {
         if let Some(max) = max_len {
             if ir.len() > max {
                 ir.truncate(max);
+                
+                // 加入淡出效果避免截斷產生的不自然感 (淡出最後 100ms)
+                let fade_len = (target_sample_rate as f32 * 0.1) as usize; 
+                let fade_len = fade_len.min(max);
+                for i in 0..fade_len {
+                    let idx = max - 1 - i;
+                    let fade_gain = i as f32 / fade_len as f32;
+                    // 使用指數型或平滑淡出，這裡使用簡單線性
+                    ir[idx][0] *= fade_gain;
+                    ir[idx][1] *= fade_gain;
+                }
             }
         }
 

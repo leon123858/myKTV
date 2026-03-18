@@ -93,13 +93,13 @@ fn main() {
         let mic_node = MicrophoneNode::new(sample_rate).expect("無法開啟麥克風");
         let mic = builder.add_node(NodeType::Microphone(mic_node));
 
-        // ── Filters1: BandPass 麥克風存在感濾波（200-6000 Hz）──
-        // Q = 0.7 讓 Q 值更集中在人聲頻段
+        // ── Filters1: HighPass 削減低頻雜音/Pop聲（80 Hz）──
+        // 去除麥克風過多的低頻，讓人生更乾淨
         let filters1 = builder.add_node(NodeType::Filter(FilterNode::new(
-            FilterType::BandPass,
+            FilterType::HighPass,
             sample_rate,
-            1000.0,
-            0.7,
+            80.0,
+            0.707,
         )));
         builder.connect(mic, filters1);
 
@@ -111,17 +111,17 @@ fn main() {
         builder.connect(mic_gain, dry_gain);
 
         // ── Echo (延遲回音 + 反饋迴路) ──
-        let delay_time_sec = 0.08; // 縮短為 80ms，產生更紮實的 KTV 效果
+        let delay_time_sec = 0.22; // 220ms 為亞洲 KTV 常見的迴音時間
         let delay_frames = (sample_rate as f32 * delay_time_sec) as usize;
         let delay_units = delay_frames / AUDIO_UNIT_SIZE;
         let max_delay_units = (sample_rate as usize * 2) / AUDIO_UNIT_SIZE;
         println!("回音延遲: {}s ({} units)", delay_time_sec, delay_units);
 
-        // Filters2: LowPass 回音反饋變暗濾波（2500 Hz）讓反饋更溫潤
+        // Filters2: LowPass 回音反饋變暗濾波（3500 Hz）讓反饋更自然溫潤
         let filters2 = builder.add_node(NodeType::Filter(FilterNode::new(
             FilterType::LowPass,
             sample_rate,
-            2500.0,
+            3500.0,
             0.707,
         )));
 
@@ -129,7 +129,7 @@ fn main() {
             max_delay_units,
             delay_units,
         )));
-        let echo_gain = builder.add_node(NodeType::Gain(GainNode::new(0.4)));
+        let echo_gain = builder.add_node(NodeType::Gain(GainNode::new(0.45)));
 
         // 正常路徑：mic_gain → delay → echo_gain
         builder.connect(mic_gain, delay);
@@ -141,10 +141,11 @@ fn main() {
 
         // ── Reverb (合成殘響) ──
         let ir_path = "examples/resource/plate01.wav";
-        let convolver_node =
-            ConvolverNode::from_file(ir_path, sample_rate, None).expect("無法建構 ConvolverNode");
+        let max_reverb_len = Some((sample_rate as f32 * 1.2) as usize); // 限制長度為 1.2 秒
+        let convolver_node = ConvolverNode::from_file(ir_path, sample_rate, max_reverb_len)
+            .expect("無法建構 ConvolverNode");
         let convolver = builder.add_node(NodeType::Convolver(convolver_node));
-        let reverb_gain = builder.add_node(NodeType::Gain(GainNode::new(0.4)));
+        let reverb_gain = builder.add_node(NodeType::Gain(GainNode::new(0.25))); // 降低 Reverb 音量
         builder.connect(mic_gain, convolver);
         builder.connect(convolver, reverb_gain);
 
@@ -171,7 +172,9 @@ fn main() {
             if current_late_callbacks > last_late_callbacks {
                 println!(
                     "⚠️ 音訊主執行緒處理太慢！延遲發生次數: {} (新增 {}), 當前 CPU 負載: {}%",
-                    current_late_callbacks, current_late_callbacks - last_late_callbacks, load_percent
+                    current_late_callbacks,
+                    current_late_callbacks - last_late_callbacks,
+                    load_percent
                 );
                 last_late_callbacks = current_late_callbacks;
             } else if load_percent > 80 {
@@ -183,8 +186,8 @@ fn main() {
     println!("========================================");
     println!("🎤 卡拉 OK 模式啟動！");
     println!("🎵 背景音樂 + 麥克風即時回音(含反饋) + 合成殘響");
-    println!("🎛️  Dry: 0.7 / Echo: 0.4 (0.08s feedback) / Reverb: 0.4");
-    println!("🔊 filters1: BandPass 1000Hz / filters2: LowPass 2500Hz");
+    println!("🎛️  Dry: 0.7 / Echo: 0.45 (0.22s) / Reverb: 0.25 (1.2s)");
+    println!("🔊 filters1: HighPass 80Hz / filters2: LowPass 3500Hz");
     println!("⌨️  按下 Enter 鍵結束程式...");
     println!("========================================");
 
