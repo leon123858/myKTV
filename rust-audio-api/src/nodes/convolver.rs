@@ -447,6 +447,10 @@ impl ConvolverNode {
             });
 
             offset += len;
+
+            // offset 表示目前輸入聲音長度
+            // current_size * growth_factor + AUDIO_UNIT_SIZE 表示增長後要等待多少聲音長度
+            // 當不等式成立，表示新的 size 不需要等待可以直接取出計算，避免成長後太大，反而要等 main thread 輸入聲音
             if offset >= current_size * growth_factor + AUDIO_UNIT_SIZE {
                 current_size *= growth_factor;
             }
