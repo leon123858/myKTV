@@ -78,8 +78,8 @@ struct TaskMsg {
 
 pub struct ConvolverNode {
     stereo: bool,
-    block_0_l: [f32; AUDIO_UNIT_SIZE],
-    block_0_r: [f32; AUDIO_UNIT_SIZE],
+    block_0_l: [f32; AUDIO_UNIT_SIZE * 2],
+    block_0_r: [f32; AUDIO_UNIT_SIZE * 2],
     task_tx: Sender<TaskMsg>,
 
     carry_buffer_l: Arc<Vec<AtomicF32>>,
@@ -215,11 +215,11 @@ impl ConvolverNode {
         let drop_count = Arc::new(AtomicUsize::new(0));
         let shared_read_ptr = Arc::new(AtomicUsize::new(0));
 
-        let mut b0_l = [0.0f32; AUDIO_UNIT_SIZE];
-        let mut b0_r = [0.0f32; AUDIO_UNIT_SIZE];
-        if b0_l_vec.len() >= AUDIO_UNIT_SIZE {
-            b0_l.copy_from_slice(&b0_l_vec[..AUDIO_UNIT_SIZE]);
-            b0_r.copy_from_slice(&b0_r_vec[..AUDIO_UNIT_SIZE]);
+        let mut b0_l = [0.0f32; AUDIO_UNIT_SIZE * 2];
+        let mut b0_r = [0.0f32; AUDIO_UNIT_SIZE * 2];
+        if b0_l_vec.len() >= AUDIO_UNIT_SIZE * 2 {
+            b0_l.copy_from_slice(&b0_l_vec[..AUDIO_UNIT_SIZE * 2]);
+            b0_r.copy_from_slice(&b0_r_vec[..AUDIO_UNIT_SIZE * 2]);
         }
 
         let max_queue_len = 2048;
@@ -410,7 +410,7 @@ impl ConvolverNode {
         let mut offset = 0;
         let growth_factor = growth_exponent.max(1) as usize;
 
-        let b0_len = AUDIO_UNIT_SIZE;
+        let b0_len = AUDIO_UNIT_SIZE * 2;
         let b0_l = Self::take_slice_padded(ir, offset, b0_len, 0);
         let b0_r = Self::take_slice_padded(ir, offset, b0_len, 1);
         offset += b0_len;
@@ -447,7 +447,9 @@ impl ConvolverNode {
             });
 
             offset += len;
-            current_size *= growth_factor;
+            if offset >= current_size * growth_factor + AUDIO_UNIT_SIZE {
+                current_size *= growth_factor;
+            }
         }
         (b0_l, b0_r, blocks)
     }
@@ -486,27 +488,28 @@ impl ConvolverNode {
 
         let mask = self.carry_mask;
 
-        const B0_LEN: usize = AUDIO_UNIT_SIZE * 2 - 1;
-        let mut b0_out_l = [0.0f32; B0_LEN];
-        let mut b0_out_r = [0.0f32; B0_LEN];
+        const B0_IR_LEN: usize = AUDIO_UNIT_SIZE * 2;
+        const B0_OUT_LEN: usize = AUDIO_UNIT_SIZE + B0_IR_LEN - 1;
+        let mut b0_out_l = [0.0f32; B0_OUT_LEN];
+        let mut b0_out_r = [0.0f32; B0_OUT_LEN];
 
         for i in 0..AUDIO_UNIT_SIZE {
             let il = in_l[i];
             let ir = in_r[i];
-            let out_l_slice = &mut b0_out_l[i..i + AUDIO_UNIT_SIZE];
+            let out_l_slice = &mut b0_out_l[i..i + B0_IR_LEN];
 
             for (out_l, &b0l) in out_l_slice.iter_mut().zip(self.block_0_l.iter()) {
                 *out_l += il * b0l;
             }
             if self.stereo {
-                let out_r_slice = &mut b0_out_r[i..i + AUDIO_UNIT_SIZE];
+                let out_r_slice = &mut b0_out_r[i..i + B0_IR_LEN];
                 for (out_r, &b0r) in out_r_slice.iter_mut().zip(self.block_0_r.iter()) {
                     *out_r += ir * b0r;
                 }
             }
         }
 
-        for i in 0..127 {
+        for i in 0..B0_OUT_LEN {
             let idx = (self.carry_read_ptr + i) & mask;
             self.carry_buffer_l[idx].fetch_add(b0_out_l[i], Ordering::Relaxed);
             if self.stereo {
