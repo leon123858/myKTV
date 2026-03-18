@@ -354,11 +354,26 @@ impl ConvolverNode {
                         0
                     };
 
+                    let fade_len = 16;
+
                     for i in skip..(len2 - 1) {
+                        let mut sample_l = res_l[i];
+                        let mut sample_r = res_r[i];
+
+                        // fade in
+                        let current_offset = i - skip;
+                        if current_offset < fade_len {
+                            let gain = current_offset as f32 / fade_len as f32;
+                            sample_l *= gain;
+                            if worker_stereo {
+                                sample_r *= gain;
+                            }
+                        }
+
                         let idx = (out_base_real + i) & global_carry_mask;
-                        worker_carry_l[idx].fetch_add(res_l[i], Ordering::Relaxed);
+                        worker_carry_l[idx].fetch_add(sample_l, Ordering::Relaxed);
                         if worker_stereo {
-                            worker_carry_r[idx].fetch_add(res_r[i], Ordering::Relaxed);
+                            worker_carry_r[idx].fetch_add(sample_r, Ordering::Relaxed);
                         }
                     }
                 }
