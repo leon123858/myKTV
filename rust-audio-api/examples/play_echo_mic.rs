@@ -21,8 +21,8 @@ fn main() {
         builder.connect(mic, dry_gain);
 
         // Echo 分支 (Wet)
-        // 延遲 0.5 秒 (計算 0.5 秒對應多少個 audio units)
-        let delay_time_sec = 0.5;
+        // 延遲 130ms (0.13 秒)
+        let delay_time_sec = 0.13;
         let delay_frames = (sample_rate as f32 * delay_time_sec) as usize;
         let delay_units = delay_frames / AUDIO_UNIT_SIZE;
         let max_delay_units = (sample_rate as usize * 2) / AUDIO_UNIT_SIZE; // Max 2 seconds delay
@@ -34,8 +34,16 @@ fn main() {
         // 延遲音的音量要比原音低，形成殘響感
         let wet_gain = builder.add_node(NodeType::Gain(GainNode::new(0.4)));
 
+        // 加入 feedback loop: delay 回授並衰減，產生漸漸變小聲的連續迴音
+        let feedback_gain = builder.add_node(NodeType::Gain(GainNode::new(0.4)));
+
         builder.connect(mic, delay);
         builder.connect(delay, wet_gain);
+
+        // 將 delay 輸出接到 feedback_gain，再以 feedback 特殊邊接回 delay，形成 echo cycle
+        builder.connect(delay, feedback_gain);
+        builder.connect_feedback(feedback_gain, delay);
+
 
         // 建立 Mixer 節點將 Dry 與 Wet 結合
         let mixer_node = MixerNode::with_gain(1.0);
@@ -56,7 +64,7 @@ fn main() {
 
     println!("========================================");
     println!("🎤 正在播放麥克風 Echo 效果...");
-    println!("🗣️  對著麥克風講話會聽到 0.5 秒延遲的回音");
+    println!("🗣️  對著麥克風講話會聽到 130ms 延遲的回音");
     println!("⌨️  按下 Enter 鍵結束程式...");
     println!("========================================");
 
