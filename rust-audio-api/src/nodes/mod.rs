@@ -19,14 +19,25 @@ pub use mixer::MixerNode;
 pub use oscillator::OscillatorNode;
 pub use convolver::{ConvolverNode, ConvolverConfig};
 
+/// Represents the different types of audio nodes available in the library.
+///
+/// Each variant wraps a specific node implementation.
 pub enum NodeType {
+    /// Adjusts the volume of the audio signal.
     Gain(GainNode),
+    /// Generates periodic waveforms (e.g., sine waves).
     Oscillator(OscillatorNode),
+    /// Captures audio from the system's default microphone.
     Microphone(MicrophoneNode),
+    /// Reads audio data from a file.
     File(FileNode),
+    /// Mixes multiple audio signals together.
     Mixer(MixerNode),
+    /// Delays the audio signal by a specified amount of time.
     Delay(DelayNode),
+    /// Applies convolution (e.g., for reverb or IR effects).
     Convolver(ConvolverNode),
+    /// Applies biquad filtering (e.g., low-pass, high-pass).
     Filter(FilterNode),
 }
 

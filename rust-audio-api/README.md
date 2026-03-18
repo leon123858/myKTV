@@ -42,15 +42,7 @@ The library provides various basic audio nodes, categorized into Source Nodes (a
 
 ## 💻 Examples & Usage
 
-Instead of embedding code directly, we provide several standalone runnable examples demonstrating how to use the API to build different audio topologies. You can find them in the `examples/` directory:
-
-- [**play_music.rs**](examples/play_music.rs): Demonstrates loading and playing an audio file (`FileNode`).
-- [**play_mic.rs**](examples/play_mic.rs): Captures microphone input and routes it directly to the speakers.
-- [**play_mixer.rs**](examples/play_mixer.rs): Shows how to mix multiple audio sources together using the `MixerNode`.
-- [**play_echo_mic.rs**](examples/play_echo_mic.rs): Applies a Delay node with a feedback loop to the microphone to create an echo effect.
-- [**play_mic_reverb.rs**](examples/play_mic_reverb.rs): Demonstrates real-time convolution reverb applied to the microphone input.
-- [**play_karaoke.rs**](examples/play_karaoke.rs): A comprehensive, advanced example combining background music, microphone input, HighPass/LowPass filters, delay (echo), and a Convolver (reverb) into a complete karaoke mixer setup.
-- [**basic_oscillator.rs**](examples/basic_oscillator.rs): Simplest example showing how to generate and play a sine wave.
+Instead of embedding code directly, we provide several standalone runnable examples demonstrating how to use the API to build different audio topologies. You can find them in the `examples/` directory
 
 ### Running the Examples
 

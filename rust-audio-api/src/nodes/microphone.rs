@@ -6,6 +6,10 @@ use dasp::signal::Signal;
 use ringbuf::HeapRb;
 use ringbuf::traits::{Observer, Producer, Split};
 
+/// An audio source that captures sound from the system's default microphone.
+///
+/// It automatically handles sample rate conversion if the microphone's native
+/// sample rate differs from the target sample rate.
 pub struct MicrophoneNode {
     resampler: ResamplerState,
     _stream: Stream,
@@ -13,6 +17,10 @@ pub struct MicrophoneNode {
 }
 
 impl MicrophoneNode {
+    /// Creates a new `MicrophoneNode` targeting the specified sample rate.
+    ///
+    /// # Parameters
+    /// - `target_sample_rate`: The sample rate requested by the `AudioContext`.
     pub fn new(target_sample_rate: u32) -> Result<Self, anyhow::Error> {
         let host = cpal::default_host();
         let device = host.default_input_device().expect("Microphone device not found");
@@ -62,6 +70,7 @@ impl MicrophoneNode {
         })
     }
 
+    /// Sets the input gain for the microphone capture.
     pub fn set_gain(&mut self, gain: f32) {
         self.gain = gain;
     }

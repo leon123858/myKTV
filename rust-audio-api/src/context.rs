@@ -7,9 +7,15 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicU8, AtomicU32, Ordering};
 use std::time::Instant;
 
+/// Monitor for audio thread performance.
+///
+/// It tracks the number of late callbacks and the current CPU load percentage
+/// of the audio processing thread.
 #[derive(Clone)]
 pub struct PerformanceMonitor {
+    /// Number of times the audio thread failed to meet the real-time deadline.
     pub late_callbacks: Arc<AtomicU32>,
+    /// Current CPU load of the audio processing thread in percentage (0-100).
     pub current_load_percent: Arc<AtomicU8>,
 }
 
@@ -22,6 +28,46 @@ impl Default for PerformanceMonitor {
     }
 }
 
+/// The main entry point for the audio system.
+///
+/// `AudioContext` manages the audio graph, the audio backend (CPAL),
+/// and the real-time audio thread. It provides a high-level API for
+/// building and controlling audio processing graphs.
+///
+/// # Examples
+///
+/// ### Basic Usage
+/// ```no_run
+/// use rust_audio_api::AudioContext;
+///
+/// let mut ctx = AudioContext::new().unwrap();
+/// // ... build graph ...
+/// // ctx.resume(destination_id).unwrap();
+/// ```
+///
+/// ### Dynamic Parameter Updates
+/// ```no_run
+/// use rust_audio_api::{AudioContext, NodeParameter};
+/// use rust_audio_api::nodes::{GainNode, NodeType};
+///
+/// let mut ctx = AudioContext::new().unwrap();
+/// let mut gain_id = None;
+///
+/// let dest_id = ctx.build_graph(|builder| {
+///     let gain = builder.add_node(NodeType::Gain(GainNode::new(0.5)));
+///     gain_id = Some(gain);
+///     gain
+/// });
+///
+/// ctx.resume(dest_id).unwrap();
+///
+/// // Later, send a message to change the gain
+/// let sender = ctx.control_sender();
+/// sender.send(rust_audio_api::graph::ControlMessage::SetParameter(
+///     gain_id.unwrap(),
+///     NodeParameter::Gain(0.8)
+/// )).unwrap();
+/// ```
 pub struct AudioContext {
     stream: Option<Stream>,
     sample_rate: u32,
@@ -31,6 +77,7 @@ pub struct AudioContext {
 }
 
 impl AudioContext {
+    /// Creates a new `AudioContext` with the default output device and sample rate.
     pub fn new() -> Result<Self, anyhow::Error> {
         let host = cpal::default_host();
         let device = host.default_output_device().expect("Default output device not found");
@@ -48,15 +95,20 @@ impl AudioContext {
         })
     }
 
+    /// Returns a `PerformanceMonitor` to track the audio thread's health.
     pub fn performance_monitor(&self) -> PerformanceMonitor {
         self.performance_monitor.clone()
     }
 
+    /// Returns the sample rate of the audio context.
     pub fn sample_rate(&self) -> u32 {
         self.sample_rate
     }
 
-    /// Provides GraphBuilder for user to construct a static graph
+    /// Provides a [`GraphBuilder`] to construct the audio processing graph.
+    ///
+    /// This method takes a closure where you can add nodes and define their connections.
+    /// It returns the [`NodeId`] of the final destination node in the graph.
     pub fn build_graph<F>(&mut self, builder_func: F) -> NodeId
     where
         F: FnOnce(&mut GraphBuilder) -> NodeId,
@@ -70,7 +122,10 @@ impl AudioContext {
         }
     }
 
-    /// Starts audio playback (generates StaticGraph and hands it to CPAL audio thread)
+    /// Starts the audio processing thread and begins playback.
+    ///
+    /// This method finalizes the graph construction and hands it over to the audio backend.
+    /// `destination_id` should be the ID of the final node that outputs audio.
     pub fn resume(&mut self, destination_id: NodeId) -> Result<(), anyhow::Error> {
         if self.stream.is_some() {
             return Ok(());

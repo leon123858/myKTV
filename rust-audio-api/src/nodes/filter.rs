@@ -1,11 +1,14 @@
 use crate::types::AudioUnit;
 use std::f32::consts::PI;
 
-/// Supported biquad filter types
+/// Supported biquad filter types.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FilterType {
+    /// Low-pass filter: Allows frequencies below the cutoff to pass.
     LowPass,
+    /// High-pass filter: Allows frequencies above the cutoff to pass.
     HighPass,
+    /// Band-pass filter: Allows frequencies within a range around the cutoff to pass.
     BandPass,
 }
 
@@ -28,7 +31,36 @@ struct ChannelState {
     y2: f32, // output z^-2
 }
 
-/// Biquad filter node, supports LowPass / HighPass / BandPass
+/// A biquad IIR filter node.
+///
+/// `FilterNode` provides standard LowPass, HighPass, and BandPass filtering.
+/// It supports dynamic updates of cutoff frequency and Q factor via 
+/// [`ControlMessage::SetParameter`](crate::graph::ControlMessage::SetParameter).
+///
+/// # Example
+/// ```no_run
+/// use rust_audio_api::nodes::{FilterNode, FilterType, NodeType};
+/// use rust_audio_api::{AudioContext, NodeParameter};
+///
+/// let mut ctx = AudioContext::new().unwrap();
+/// let sample_rate = ctx.sample_rate();
+///
+/// let mut filter_id = None;
+/// let dest_id = ctx.build_graph(|builder| {
+///     let filter = FilterNode::new(FilterType::LowPass, sample_rate, 1000.0, 0.707);
+///     let id = builder.add_node(NodeType::Filter(filter));
+///     filter_id = Some(id);
+///     id
+/// });
+/// 
+/// // Dynamically sweep the filter cutoff frequency to 2000 Hz
+/// ctx.control_sender().send(
+///     rust_audio_api::graph::ControlMessage::SetParameter(
+///         filter_id.unwrap(),
+///         NodeParameter::Cutoff(2000.0)
+///     )
+/// ).unwrap();
+/// ```
 pub struct FilterNode {
     filter_type: FilterType,
     sample_rate: f32,
@@ -39,6 +71,13 @@ pub struct FilterNode {
 }
 
 impl FilterNode {
+    /// Creates a new `FilterNode`.
+    ///
+    /// # Parameters
+    /// - `filter_type`: The type of filter ([`FilterType`]).
+    /// - `sample_rate`: Processing sample rate.
+    /// - `cutoff_hz`: Cutoff frequency in Hz.
+    /// - `q`: Quality factor (Resonance).
     pub fn new(filter_type: FilterType, sample_rate: u32, cutoff_hz: f32, q: f32) -> Self {
         let mut node = Self {
             filter_type,
@@ -58,19 +97,19 @@ impl FilterNode {
         node
     }
 
-    /// Sets the cutoff frequency (updates coefficients automatically)
+    /// Sets the cutoff frequency (updates coefficients automatically).
     pub fn set_cutoff(&mut self, cutoff_hz: f32) {
         self.cutoff = cutoff_hz;
         self.recalculate_coefficients();
     }
 
-    /// Sets the quality factor Q (updates coefficients automatically)
+    /// Sets the quality factor Q (updates coefficients automatically).
     pub fn set_q(&mut self, q: f32) {
         self.q = q;
         self.recalculate_coefficients();
     }
 
-    /// Sets the filter type (updates coefficients automatically)
+    /// Sets the filter type (updates coefficients automatically).
     pub fn set_filter_type(&mut self, filter_type: FilterType) {
         self.filter_type = filter_type;
         self.recalculate_coefficients();

@@ -4,9 +4,14 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicU32, AtomicUsize, Ordering};
 use thread_priority::*;
 
+/// Configuration for the [`ConvolverNode`].
 pub struct ConvolverConfig {
+    /// Whether the convolution should be performed in stereo.
     pub stereo: bool,
+    /// The exponent for partitioning the Impulse Response (IR).
+    /// Controls how the IR is divided into blocks for processing.
     pub growth_exponent: u32,
+    /// The size of the first block (Block 0) in samples.
     pub block_0_size: usize,
 }
 
@@ -78,6 +83,11 @@ struct TaskMsg {
     history_write_ptr: usize,
 }
 
+/// A node that performs real-time convolution against an Impulse Response (IR).
+///
+/// Convolver is used for effects like reverb, speaker modeling, or virtual acoustics.
+/// It uses a partitioned convolution algorithm with background worker threads to
+/// achieve low-latency performance even with long IRs.
 pub struct ConvolverNode {
     stereo: bool,
     block_0_l: Vec<f32>,
@@ -103,6 +113,12 @@ pub struct ConvolverNode {
 }
 
 impl ConvolverNode {
+    /// Creates a `ConvolverNode` by loading an Impulse Response (IR) from a WAV file.
+    ///
+    /// # Parameters
+    /// - `path`: Path to the WAV file.
+    /// - `target_sample_rate`: Target sample rate for processing.
+    /// - `max_len`: Optional maximum length (in samples) to truncate the IR.
     pub fn from_file(
         path: &str,
         target_sample_rate: u32,
@@ -116,6 +132,7 @@ impl ConvolverNode {
         )
     }
 
+    /// Creates a `ConvolverNode` from a WAV file with custom configuration.
     pub fn from_file_with_config(
         path: &str,
         target_sample_rate: u32,
@@ -575,6 +592,10 @@ impl ConvolverNode {
         self.drop_count.load(Ordering::Relaxed)
     }
 
+    /// Returns a shared reference to the drop count.
+    ///
+    /// Drop count increases when the convolution worker threads fall behind
+    /// the real-time audio thread.
     pub fn clone_drop_count(&self) -> Arc<AtomicUsize> {
         Arc::clone(&self.drop_count)
     }

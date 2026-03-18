@@ -4,6 +4,7 @@ use crossbeam_channel::Receiver;
 use std::collections::HashMap;
 use uuid::Uuid;
 
+/// A unique identifier for a node in the audio graph.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct NodeId(pub Uuid);
 
@@ -13,25 +14,34 @@ impl NodeId {
     }
 }
 
-/// Generic parameter, supporting dynamic updates of node properties
+/// Generic parameter, supporting dynamic updates of node properties.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum NodeParameter {
+    /// Gain/Volume adjustment.
     Gain(f32),
+    /// Frequency in Hz.
     Frequency(f32),
+    /// Boolean switch (on/off).
     Switch(bool),
+    /// Delay time in units (blocks).
     DelayUnits(usize),
+    /// Filter cutoff frequency.
     Cutoff(f32),
+    /// Filter Q factor (Resonance).
     Q(f32),
-    // Play, Stop, etc.
 }
 
-/// Commands sent by the UI or Main Thread to the Audio Thread.
-/// Topology changes are not supported; only "parameter update" commands can be sent.
+/// Commands sent to the audio thread to update node parameters.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum ControlMessage {
+    /// Sets a parameter on a specific node.
     SetParameter(NodeId, NodeParameter),
 }
 
+/// Builder for constructing the audio processing graph.
+///
+/// `GraphBuilder` allows you to add nodes and define the connections (edges)
+/// between them. It supports both standard forward connections and feedback loops.
 pub struct GraphBuilder {
     nodes: Vec<NodeType>,
     // edges: [source_node_index] -> [destination_node_index]
@@ -51,7 +61,7 @@ impl GraphBuilder {
         }
     }
 
-    /// Adds a node and returns its unique ID
+    /// Adds a node to the graph and returns its unique [`NodeId`].
     pub fn add_node(&mut self, node: NodeType) -> NodeId {
         let index = self.nodes.len();
         self.nodes.push(node);
@@ -61,7 +71,7 @@ impl GraphBuilder {
         id
     }
 
-    /// Connects source to destination (source becomes an input of dest)
+    /// Connects the output of the source node to the input of the destination node.
     pub fn connect(&mut self, source: NodeId, destination: NodeId) {
         if let (Some(&src_idx), Some(&dest_idx)) = (
             self.id_to_index.get(&source),
@@ -71,9 +81,10 @@ impl GraphBuilder {
         }
     }
 
-    /// Establishes a feedback connection (back-edge), excluded from topological sorting.
-    /// Feedback edges read the output buffer of the source from the previous frame during execution,
-    /// introducing a natural 1-block delay (standard practice in audio feedback paths).
+    /// Establishes a feedback connection (back-edge) between nodes.
+    ///
+    /// Feedback edges are excluded from topological sorting and introduce a 1-block delay.
+    /// Use this for feedback loops (e.g., in delays or recursive filters).
     pub fn connect_feedback(&mut self, source: NodeId, destination: NodeId) {
         if let (Some(&src_idx), Some(&dest_idx)) = (
             self.id_to_index.get(&source),

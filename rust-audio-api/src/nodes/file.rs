@@ -14,6 +14,25 @@ use symphonia::core::io::MediaSourceStream;
 use symphonia::core::meta::MetadataOptions;
 use symphonia::core::probe::Hint;
 
+/// A node that reads and decodes audio from a file.
+///
+/// It uses the `symphonia` library to support various audio formats.
+/// Like [`MicrophoneNode`][crate::nodes::MicrophoneNode], it handles
+/// sample rate conversion automatically.
+///
+/// # Example
+/// ```no_run
+/// use rust_audio_api::nodes::{FileNode, NodeType};
+/// use rust_audio_api::AudioContext;
+///
+/// let mut ctx = AudioContext::new().unwrap();
+/// let sample_rate = ctx.sample_rate();
+///
+/// let dest_id = ctx.build_graph(|builder| {
+///     let file = FileNode::new("music.mp3", sample_rate).unwrap();
+///     builder.add_node(NodeType::File(file))
+/// });
+/// ```
 pub struct FileNode {
     resampler: ResamplerState,
     gain: f32,
@@ -21,6 +40,11 @@ pub struct FileNode {
 }
 
 impl FileNode {
+    /// Creates a new `FileNode` for the specified file path.
+    ///
+    /// # Parameters
+    /// - `file_path`: Path to the audio file.
+    /// - `target_sample_rate`: Processing sample rate.
     pub fn new(file_path: &str, target_sample_rate: u32) -> Result<Self, anyhow::Error> {
         let file = std::fs::File::open(file_path)?;
         let mss = MediaSourceStream::new(Box::new(file), Default::default());
@@ -124,6 +148,7 @@ impl FileNode {
         })
     }
 
+    /// Sets the output gain for the file playback.
     pub fn set_gain(&mut self, gain: f32) {
         self.gain = gain;
     }

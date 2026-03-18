@@ -9,6 +9,11 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
 use std::time::Duration;
 
+/// An audio source that generates periodic waveforms.
+///
+/// Currently, it generates a sine wave at the specified frequency.
+/// It runs a background thread to generate samples and uses a ring buffer
+/// to communicate with the audio processing thread.
 pub struct OscillatorNode {
     consumer: Caching<Arc<SharedRb<Heap<[f32; 2]>>>, false, true>,
     gain: f32,
@@ -16,6 +21,11 @@ pub struct OscillatorNode {
 }
 
 impl OscillatorNode {
+    /// Creates a new `OscillatorNode` with the given sample rate and frequency.
+    ///
+    /// # Parameters
+    /// - `sample_rate`: The target sample rate (e.g., 44100.0).
+    /// - `frequency`: The frequency of the sine wave in Hz (e.g., 440.0).
     pub fn new(sample_rate: f64, frequency: f64) -> Self {
         // Set ringbuf capacity for approx 0.5s buffer (e.g., 48000 Hz => 24000)
         let capacity = (sample_rate * 0.5) as usize;
@@ -47,6 +57,7 @@ impl OscillatorNode {
         }
     }
 
+    /// Sets the output gain (volume) for this oscillator.
     pub fn set_gain(&mut self, gain: f32) {
         self.gain = gain;
     }

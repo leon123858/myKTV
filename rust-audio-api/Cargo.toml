@@ -1,7 +1,15 @@
 [package]
 name = "rust-audio-api"
-version = "0.1.0"
+version = "0.0.1"
+authors = ["a0970785699@gmail.com"]
 edition = "2024"
+description = "A Web Audio API-like wrapper for Rust audio processing."
+license = "Apache-2.0"
+repository = "https://github.com/leon123858/rust-audio-api"
+documentation = "https://docs.rs/rust-audio-api"
+readme = "README.md"
+keywords = ["audio", "wrapper"]
+categories = ["audio"]
 
 [dependencies]
 thread-priority = "1.1.0"
