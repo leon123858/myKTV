@@ -24,3 +24,6 @@ tauri-plugin-dialog = "2"
 
 # add your dependencies here
 rust-audio-api = { path = "../../rust-audio-api" }
+tauri-plugin-shell = "2.3.5"
+tauri-plugin-fs = "2.4.5"
+serde = "1.0.228"

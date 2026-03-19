@@ -7,13 +7,14 @@
     "dev": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview",
-    "tauri": "tauri"
+    "tauri": "tauri",
+    "build:sidecar:win": "cd python-downloader && uv run pyinstaller --noconfirm --onefile downloader.py && copy /Y dist\\downloader.exe ..\\src-tauri\\downloader-x86_64-pc-windows-msvc.exe"
   },
   "dependencies": {
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
-    "@tauri-apps/api": "^2",
-    "@tauri-apps/plugin-opener": "^2"
+    "@tauri-apps/api": "^2.10.1",
+    "@tauri-apps/plugin-opener": "^2.5.3"
   },
   "devDependencies": {
     "@types/react": "^19.1.8",

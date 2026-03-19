@@ -31,6 +31,7 @@ use crate::types::AudioUnit;
 /// ```
 pub struct MixerNode {
     gain: f32,
+    pub clipping: bool,
 }
 
 impl Default for MixerNode {
@@ -40,14 +41,14 @@ impl Default for MixerNode {
 }
 
 impl MixerNode {
-    /// Creates a new `MixerNode` with unity gain (1.0).
+    /// Creates a new `MixerNode` with unity gain (1.0) and clipping enabled.
     pub fn new() -> Self {
-        Self { gain: 1.0 }
+        Self { gain: 1.0, clipping: true }
     }
 
-    /// Creates a new `MixerNode` with the specified gain factor.
+    /// Creates a new `MixerNode` with the specified gain factor and clipping enabled by default.
     pub fn with_gain(gain: f32) -> Self {
-        Self { gain }
+        Self { gain, clipping: true }
     }
 
     /// Sets the gain factor for the mixed output.
@@ -56,19 +57,29 @@ impl MixerNode {
     }
 
     /// MixerNode is a passive node that receives the aggregated `input` (the mixed result) from the graph,
-    /// then applies Gain and performing Clipping/Limiting to ensure the final output doesn't distort.
+    /// then applies Gain and optionally performing Clipping/Limiting to ensure the final output doesn't distort.
     #[inline(always)]
     pub fn process(&mut self, input: Option<&AudioUnit>, output: &mut AudioUnit) {
         if let Some(in_unit) = input {
             output.copy_from_slice(in_unit);
 
-            // Apply gain and hard clipping limit to [-1.0, 1.0] to prevent distortion
-            dasp::slice::map_in_place(&mut output[..], |frame| {
-                [
-                    (frame[0] * self.gain).clamp(-1.0, 1.0),
-                    (frame[1] * self.gain).clamp(-1.0, 1.0),
-                ]
-            });
+            if self.clipping {
+                // Apply gain and hard clipping limit to [-1.0, 1.0] to prevent distortion
+                dasp::slice::map_in_place(&mut output[..], |frame| {
+                    [
+                        (frame[0] * self.gain).clamp(-1.0, 1.0),
+                        (frame[1] * self.gain).clamp(-1.0, 1.0),
+                    ]
+                });
+            } else {
+                // Apply gain only
+                dasp::slice::map_in_place(&mut output[..], |frame| {
+                    [
+                        frame[0] * self.gain,
+                        frame[1] * self.gain,
+                    ]
+                });
+            }
         } else {
             // If no upstream input, output silence
             dasp::slice::equilibrium(&mut output[..]);
