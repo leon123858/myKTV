@@ -7,6 +7,7 @@ use rust_audio_api::types::AUDIO_UNIT_SIZE;
 use rust_audio_api::AudioContext;
 use serde::Serialize;
 use std::path::PathBuf;
+use std::process::Command;
 use std::sync::Mutex;
 use tauri::Emitter;
 use tauri::Manager;
@@ -66,6 +67,29 @@ fn generate_karaoke_ir(sample_rate: u32) -> Vec<[f32; 2]> {
     }
 
     ir
+}
+
+#[tauri::command]
+fn open_app_dir(app: tauri::AppHandle) {
+    // 獲取 App 的資料儲存目錄 (例如: AppData/Roaming/<app-name>)
+    if let Ok(path) = app.path().app_data_dir() {
+        let path_str = path.to_string_lossy().to_string();
+
+        #[cfg(target_os = "windows")]
+        {
+            Command::new("explorer").arg(path_str).spawn().unwrap();
+        }
+
+        #[cfg(target_os = "macos")]
+        {
+            Command::new("open").arg(path_str).spawn().unwrap();
+        }
+
+        #[cfg(target_os = "linux")]
+        {
+            Command::new("xdg-open").arg(path_str).spawn().unwrap();
+        }
+    }
 }
 
 #[tauri::command]
@@ -421,7 +445,8 @@ pub fn run() {
             start_karaoke,
             stop_karaoke,
             download_youtube,
-            get_downloaded_songs
+            get_downloaded_songs,
+            open_app_dir
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
