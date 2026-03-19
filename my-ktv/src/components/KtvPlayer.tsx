@@ -87,15 +87,30 @@ export const KtvPlayer: React.FC<KtvPlayerProps> = ({ song, onClose }) => {
             {song?.name || "未選擇歌曲"}
           </Title>
         </Space>
-        {isPlaying && (
-          <Tag color="#ff007f" className="pulse-tag">
-            🎤 LIVE
-          </Tag>
-        )}
+        <Space>
+          {isPlaying && (
+            <>
+              <Tag color="#ff007f" className="pulse-tag">
+                🎤 LIVE
+              </Tag>
+              <Button
+                danger
+                size="small"
+                icon={<PauseOutlined />}
+                onClick={handleStop}
+                style={{
+                  fontWeight: 600,
+                }}
+              >
+                停止 KTV
+              </Button>
+            </>
+          )}
+        </Space>
       </Flex>
 
       {/* Video */}
-      <div className="video-container">
+      <div className="video-container" style={{ position: "relative" }}>
         {song ? (
           <video
             ref={videoRef}
@@ -112,6 +127,41 @@ export const KtvPlayer: React.FC<KtvPlayerProps> = ({ song, onClose }) => {
           </div>
         )}
         {isPlaying && <div className="video-overlay-glow" />}
+        {/* Start button overlay centered on video */}
+        {!isPlaying && song && (
+          <div
+            style={{
+              position: "absolute",
+              top: 0,
+              left: 0,
+              width: "100%",
+              height: "100%",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              zIndex: 10,
+            }}
+          >
+            <Button
+              type="primary"
+              size="large"
+              icon={<CaretRightOutlined />}
+              onClick={handleStart}
+              style={{
+                background: "linear-gradient(135deg, #ff007f, #6e00ff)",
+                border: "none",
+                height: 56,
+                paddingInline: 48,
+                fontSize: "1.1rem",
+                fontWeight: 600,
+                boxShadow: "0 4px 24px rgba(255,0,127,0.5)",
+                borderRadius: 28,
+              }}
+            >
+              開始 KTV
+            </Button>
+          </div>
+        )}
       </div>
 
       {/* Error */}
@@ -125,45 +175,6 @@ export const KtvPlayer: React.FC<KtvPlayerProps> = ({ song, onClose }) => {
           style={{ borderRadius: 10 }}
         />
       )}
-
-      {/* Controls */}
-      <Flex justify="center" gap={16}>
-        {!isPlaying ? (
-          <Button
-            type="primary"
-            size="large"
-            icon={<CaretRightOutlined />}
-            onClick={handleStart}
-            disabled={!song}
-            style={{
-              background: "linear-gradient(135deg, #ff007f, #6e00ff)",
-              border: "none",
-              height: 48,
-              paddingInline: 40,
-              fontSize: "1rem",
-              fontWeight: 600,
-              boxShadow: "0 4px 20px rgba(255,0,127,0.35)",
-            }}
-          >
-            開始 KTV
-          </Button>
-        ) : (
-          <Button
-            danger
-            size="large"
-            icon={<PauseOutlined />}
-            onClick={handleStop}
-            style={{
-              height: 48,
-              paddingInline: 40,
-              fontSize: "1rem",
-              fontWeight: 600,
-            }}
-          >
-            停止 KTV
-          </Button>
-        )}
-      </Flex>
     </div>
   );
 };
