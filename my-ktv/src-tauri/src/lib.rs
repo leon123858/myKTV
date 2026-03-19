@@ -366,10 +366,16 @@ async fn download_youtube(app: tauri::AppHandle, url: String) -> Result<(), Stri
 
     tauri::async_runtime::spawn(async move {
         while let Some(event) = rx.recv().await {
+            // println!("Downloader Event: {:?}", event);
             if let CommandEvent::Stdout(line) = event {
                 if let Ok(line_str) = String::from_utf8(line) {
-                    println!("Downloader: {}", line_str);
-                    let _ = app.emit("download-progress", line_str);
+                    if let Some(index) = line_str.find('{') {
+                        let json_str = &line_str[index..];
+                        println!("Downloader: {}", json_str);
+                        let _ = app.emit("download-progress", json_str.to_string());
+                    } else {
+                        println!("Downloader: {}", line_str);
+                    }
                 }
             } else if let CommandEvent::Stderr(line) = event {
                 if let Ok(line_str) = String::from_utf8(line) {
