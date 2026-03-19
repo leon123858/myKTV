@@ -40,7 +40,7 @@ export const KtvPlayer: React.FC<KtvPlayerProps> = ({ song, onClose }) => {
       setErrorMsg("");
     } catch (e) {
       console.error(e);
-      setErrorMsg(`啟動 KTV 時發生錯誤: ${e}`);
+      setErrorMsg(`Error starting KTV: ${e}`);
     }
   };
 
@@ -54,7 +54,7 @@ export const KtvPlayer: React.FC<KtvPlayerProps> = ({ song, onClose }) => {
       setIsPlaying(false);
     } catch (e) {
       console.error(e);
-      setErrorMsg(`停止 KTV 時發生錯誤: ${e}`);
+      setErrorMsg(`Error stopping KTV: ${e}`);
     }
   };
 
@@ -70,7 +70,7 @@ export const KtvPlayer: React.FC<KtvPlayerProps> = ({ song, onClose }) => {
       {/* Header */}
       <Flex justify="space-between" align="center">
         <Space>
-          <Tooltip title="返回曲庫">
+          <Tooltip title="Back to Library">
             <Button
               icon={<ArrowLeftOutlined />}
               onClick={onClose}
@@ -84,7 +84,7 @@ export const KtvPlayer: React.FC<KtvPlayerProps> = ({ song, onClose }) => {
             style={{ margin: 0, maxWidth: 600 }}
           >
             <SoundOutlined style={{ marginRight: 8 }} />
-            {song?.name || "未選擇歌曲"}
+            {song?.name || "No song selected"}
           </Title>
         </Space>
         <Space>
@@ -102,7 +102,7 @@ export const KtvPlayer: React.FC<KtvPlayerProps> = ({ song, onClose }) => {
                   fontWeight: 600,
                 }}
               >
-                停止 KTV
+                Stop KTV
               </Button>
             </>
           )}
@@ -122,7 +122,7 @@ export const KtvPlayer: React.FC<KtvPlayerProps> = ({ song, onClose }) => {
         ) : (
           <div className="no-video">
             <Text type="secondary" style={{ fontSize: "1.1rem" }}>
-              請先選擇一首歌曲
+              Please select a song first
             </Text>
           </div>
         )}
@@ -158,7 +158,7 @@ export const KtvPlayer: React.FC<KtvPlayerProps> = ({ song, onClose }) => {
                 borderRadius: 28,
               }}
             >
-              開始 KTV
+              Start KTV
             </Button>
           </div>
         )}

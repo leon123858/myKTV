@@ -74,18 +74,18 @@ export const Library: React.FC<LibraryProps> = ({ onSongSelected }) => {
       <Flex justify="space-between" align="center">
         <Title level={4} style={{ margin: 0 }}>
           <CustomerServiceOutlined style={{ marginRight: 8 }} />
-          曲庫
+          Library
           {songs.length > 0 && (
             <Tag
               color="magenta"
               style={{ marginLeft: 10, verticalAlign: "middle" }}
             >
-              {songs.length} 首
+              {songs.length} songs
             </Tag>
           )}
         </Title>
         <Space>
-          <Tooltip title="重新整理">
+          <Tooltip title="Refresh">
             <Button
               icon={<ReloadOutlined />}
               onClick={fetchSongs}
@@ -94,7 +94,7 @@ export const Library: React.FC<LibraryProps> = ({ onSongSelected }) => {
               size="small"
             />
           </Tooltip>
-          <Tooltip title="開啟資料夾">
+          <Tooltip title="Open Folder">
             <Button
               icon={<FolderOpenOutlined />}
               onClick={handleOpenFolder}
@@ -107,7 +107,7 @@ export const Library: React.FC<LibraryProps> = ({ onSongSelected }) => {
 
       {/* Search */}
       <Input
-        placeholder="搜尋歌曲名稱..."
+        placeholder="Search songs..."
         prefix={<SearchOutlined style={{ color: "rgba(255,255,255,0.3)" }} />}
         value={searchText}
         onChange={(e) => setSearchText(e.target.value)}
@@ -124,8 +124,8 @@ export const Library: React.FC<LibraryProps> = ({ onSongSelected }) => {
               description={
                 <Text type="secondary">
                   {searchText
-                    ? "找不到符合的歌曲"
-                    : "還沒有歌曲，去「下載」分頁新增吧！"}
+                    ? "No matching songs found"
+: "No songs yet. Go to the \"Download\" tab to add some!"}
                 </Text>
               }
               style={{ marginTop: 40 }}
@@ -163,7 +163,7 @@ export const Library: React.FC<LibraryProps> = ({ onSongSelected }) => {
                       }}
                       size="small"
                     >
-                      載入
+                      Load
                     </Button>,
                   ]}
                 >
@@ -215,7 +215,7 @@ export const Library: React.FC<LibraryProps> = ({ onSongSelected }) => {
                             color="purple"
                             style={{ fontSize: "0.7rem" }}
                           >
-                            音訊
+                            Audio
                           </Tag>
                         )}
                       </Space>

@@ -65,29 +65,29 @@ export const Downloader: React.FC = () => {
         // console.log("Downloader:", data);
         if (data.status === "downloading") {
           setProgress(data.percent || 0);
-          setStatusText(`下載中: ${data.percent?.toFixed(1)}%`);
+          setStatusText(`Downloading: ${data.percent?.toFixed(1)}%`);
           setStage("downloading");
           if (data.filename) {
             const name = data.filename.split(/[\\/]/).pop() || "";
             setFileName(name);
           }
         } else if (data.status === "finished") {
-          setStatusText("檔案下載完成，準備處理...");
+          setStatusText("File download complete, preparing to process...");
           setProgress(100);
           setStage("finished");
         } else if (data.status === "processing") {
-          setStatusText("分離音訊與影片中...");
+          setStatusText("Splitting audio and video...");
           setStage("processing");
         } else if (data.status === "completed") {
           setDownloading(false);
           setProgress(100);
-          setStatusText("完成！");
+          setStatusText("Completed!");
           setStage("completed");
         } else if (data.status === "starting") {
-          setStatusText("啟動下載器...");
+          setStatusText("Starting downloader...");
           setStage("starting");
         } else if (data.status === "error") {
-          setStatusText(`錯誤: ${data.message}`);
+          setStatusText(`Error: ${data.message}`);
           setErrorMsg(data.message || "Unknown error");
           setDownloading(false);
           setStage("error");
@@ -106,7 +106,7 @@ export const Downloader: React.FC = () => {
     if (!url) return;
     setDownloading(true);
     setProgress(0);
-    setStatusText("初始化中...");
+    setStatusText("Initializing...");
     setStage("starting");
     setErrorMsg("");
     setFileName("");
@@ -133,12 +133,12 @@ export const Downloader: React.FC = () => {
 
   const stepItems = [
     {
-      title: "啟動",
+      title: "Start",
       icon:
         stage === "starting" ? <LoadingOutlined /> : <CloudDownloadOutlined />,
     },
     {
-      title: "下載",
+      title: "Download",
       icon:
         stage === "downloading" ? (
           <LoadingOutlined />
@@ -151,12 +151,12 @@ export const Downloader: React.FC = () => {
         stage === "downloading" ? `${progress.toFixed(1)}%` : undefined,
     },
     {
-      title: "處理",
+      title: "Process",
       icon:
         stage === "processing" ? <LoadingOutlined /> : <ScissorOutlined />,
     },
     {
-      title: "完成",
+      title: "Complete",
       icon: <SmileOutlined />,
     },
   ];
@@ -165,7 +165,7 @@ export const Downloader: React.FC = () => {
     <div className="panel-content">
       <Title level={4} style={{ margin: 0 }}>
         <DownloadOutlined style={{ marginRight: 8 }} />
-        新增歌曲
+        Add Song
       </Title>
 
       <Card
@@ -177,7 +177,7 @@ export const Downloader: React.FC = () => {
       >
         <Flex gap={10}>
           <Input
-            placeholder="貼上 YouTube 連結..."
+            placeholder="Paste YouTube link..."
             prefix={
               <LinkOutlined style={{ color: "rgba(255,255,255,0.3)" }} />
             }
@@ -203,7 +203,7 @@ export const Downloader: React.FC = () => {
               minWidth: 100,
             }}
           >
-            {downloading ? "下載中" : "下載"}
+            {downloading ? "Downloading" : "Download"}
           </Button>
         </Flex>
       </Card>
@@ -266,12 +266,12 @@ export const Downloader: React.FC = () => {
             {stage === "completed" && (
               <Alert
                 type="success"
-                message="下載完成！歌曲已加入曲庫。"
+                message="Download complete! Song added to library."
                 showIcon
                 icon={<CheckCircleOutlined />}
                 action={
                   <Button size="small" onClick={handleReset}>
-                    再下載一首
+                    Download another
                   </Button>
                 }
               />
@@ -280,12 +280,12 @@ export const Downloader: React.FC = () => {
             {stage === "error" && (
               <Alert
                 type="error"
-                message="下載失敗"
+                message="Download failed"
                 description={errorMsg}
                 showIcon
                 action={
                   <Button size="small" danger onClick={handleReset}>
-                    重試
+                    Retry
                   </Button>
                 }
               />

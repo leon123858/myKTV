@@ -26,7 +26,7 @@ function App() {
       key: "library",
       label: (
         <span>
-          <CustomerServiceOutlined /> 曲庫
+          <CustomerServiceOutlined /> Library
         </span>
       ),
       children: <Library onSongSelected={handleSongSelected} />,
@@ -35,7 +35,7 @@ function App() {
       key: "downloader",
       label: (
         <span>
-          <DownloadOutlined /> 下載
+          <DownloadOutlined /> Download
         </span>
       ),
       children: <Downloader />,
@@ -46,7 +46,7 @@ function App() {
             key: "player",
             label: (
               <span>
-                <PlayCircleOutlined /> 播放
+                <PlayCircleOutlined /> Player
               </span>
             ),
             children: (
