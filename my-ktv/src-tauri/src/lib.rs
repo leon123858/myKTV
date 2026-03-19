@@ -173,7 +173,7 @@ fn build_ktv_graph(
     let lp_mic = builder.add_node(NodeType::Filter(FilterNode::new(
         FilterType::LowPass,
         sample_rate,
-        6000.0,
+        1000.0,
         0.707,
     )));
     builder.connect(hp, lp_mic);
@@ -198,7 +198,7 @@ fn build_ktv_graph(
     let lp = builder.add_node(NodeType::Filter(FilterNode::new(
         FilterType::LowPass,
         sample_rate,
-        3500.0,
+        1000.0,
         0.707,
     )));
 
@@ -214,7 +214,7 @@ fn build_ktv_graph(
     let reverb_lp = builder.add_node(NodeType::Filter(FilterNode::new(
         FilterType::LowPass,
         sample_rate,
-        3000.0,
+        1000.0,
         0.707,
     )));
     let reverb_gain = builder.add_node(NodeType::Gain(GainNode::new(0.35)));
@@ -235,8 +235,15 @@ fn build_ktv_graph(
     if let Some(path) = music_path {
         let file_node = FileNode::new(path, sample_rate).expect("Unable to read audio file");
         let file = builder.add_node(NodeType::File(file_node));
-        let music_gain = builder.add_node(NodeType::Gain(GainNode::new(0.3)));
-        builder.connect(file, music_gain);
+        let music_gain = builder.add_node(NodeType::Gain(GainNode::new(0.5)));
+        let lp_music = builder.add_node(NodeType::Filter(FilterNode::new(
+            FilterType::LowPass,
+            sample_rate,
+            1000.0,
+            0.707,
+        )));
+        builder.connect(file, lp_music);
+        builder.connect(lp_music, music_gain);
         builder.connect(music_gain, mixer);
     }
 
