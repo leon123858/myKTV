@@ -7,6 +7,7 @@ use rust_audio_api::types::AUDIO_UNIT_SIZE;
 use rust_audio_api::AudioContext;
 use serde::Serialize;
 use std::path::PathBuf;
+use std::process::Command;
 use std::sync::Mutex;
 use tauri::Emitter;
 use tauri::Manager;
@@ -66,6 +67,29 @@ fn generate_karaoke_ir(sample_rate: u32) -> Vec<[f32; 2]> {
     }
 
     ir
+}
+
+#[tauri::command]
+fn open_app_dir(app: tauri::AppHandle) {
+    // 獲取 App 的資料儲存目錄 (例如: AppData/Roaming/<app-name>)
+    if let Ok(path) = app.path().app_data_dir() {
+        let path_str = path.to_string_lossy().to_string();
+
+        #[cfg(target_os = "windows")]
+        {
+            Command::new("explorer").arg(path_str).spawn().unwrap();
+        }
+
+        #[cfg(target_os = "macos")]
+        {
+            Command::new("open").arg(path_str).spawn().unwrap();
+        }
+
+        #[cfg(target_os = "linux")]
+        {
+            Command::new("xdg-open").arg(path_str).spawn().unwrap();
+        }
+    }
 }
 
 #[tauri::command]
@@ -342,10 +366,16 @@ async fn download_youtube(app: tauri::AppHandle, url: String) -> Result<(), Stri
 
     tauri::async_runtime::spawn(async move {
         while let Some(event) = rx.recv().await {
+            // println!("Downloader Event: {:?}", event);
             if let CommandEvent::Stdout(line) = event {
                 if let Ok(line_str) = String::from_utf8(line) {
-                    println!("Downloader: {}", line_str);
-                    let _ = app.emit("download-progress", line_str);
+                    if let Some(index) = line_str.find('{') {
+                        let json_str = &line_str[index..];
+                        println!("Downloader: {}", json_str);
+                        let _ = app.emit("download-progress", json_str.to_string());
+                    } else {
+                        println!("Downloader: {}", line_str);
+                    }
                 }
             } else if let CommandEvent::Stderr(line) = event {
                 if let Ok(line_str) = String::from_utf8(line) {
@@ -421,7 +451,8 @@ pub fn run() {
             start_karaoke,
             stop_karaoke,
             download_youtube,
-            get_downloaded_songs
+            get_downloaded_songs,
+            open_app_dir
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -1,6 +1,28 @@
-import React, { useState, useEffect } from "react";
+import React, { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
+import {
+  Input,
+  Button,
+  Progress,
+  Steps,
+  Alert,
+  Space,
+  Typography,
+  Card,
+  Flex,
+} from "antd";
+import {
+  DownloadOutlined,
+  LoadingOutlined,
+  CheckCircleOutlined,
+  CloudDownloadOutlined,
+  ScissorOutlined,
+  SmileOutlined,
+  LinkOutlined,
+} from "@ant-design/icons";
+
+const { Title, Text } = Typography;
 
 export interface Song {
   name: string;
@@ -8,50 +30,70 @@ export interface Song {
   audio_path: string;
 }
 
-interface DownloaderProps {
-  onSongSelected: (song: Song) => void;
-}
+type DownloadStage =
+  | "idle"
+  | "starting"
+  | "downloading"
+  | "finished"
+  | "processing"
+  | "completed"
+  | "error";
 
-export const Downloader: React.FC<DownloaderProps> = ({ onSongSelected }) => {
+const stageToStep: Record<DownloadStage, number> = {
+  idle: -1,
+  starting: 0,
+  downloading: 1,
+  finished: 1,
+  processing: 2,
+  completed: 3,
+  error: -1,
+};
+
+export const Downloader: React.FC = () => {
   const [url, setUrl] = useState("");
   const [downloading, setDownloading] = useState(false);
   const [progress, setProgress] = useState<number>(0);
   const [statusText, setStatusText] = useState("");
-  const [songs, setSongs] = useState<Song[]>([]);
-
-  const fetchSongs = async () => {
-    try {
-      const resp = await invoke<Song[]>("get_downloaded_songs");
-      setSongs(resp);
-    } catch (e) {
-      console.error(e);
-    }
-  };
+  const [stage, setStage] = useState<DownloadStage>("idle");
+  const [errorMsg, setErrorMsg] = useState("");
+  const [fileName, setFileName] = useState("");
 
   useEffect(() => {
-    fetchSongs();
-    
     const unlisten = listen<string>("download-progress", (event) => {
       try {
         const data = JSON.parse(event.payload);
+        // console.log("Downloader:", data);
         if (data.status === "downloading") {
           setProgress(data.percent || 0);
-          setStatusText(`Downloading: ${data.percent}%`);
+          setStatusText(`Downloading: ${data.percent?.toFixed(1)}%`);
+          setStage("downloading");
+          if (data.filename) {
+            const name = data.filename.split(/[\\/]/).pop() || "";
+            setFileName(name);
+          }
         } else if (data.status === "finished") {
-          setStatusText("Download finished! Processing...");
+          setStatusText("File download complete, preparing to process...");
+          setProgress(100);
+          setStage("finished");
+        } else if (data.status === "processing") {
+          setStatusText("Splitting audio and video...");
+          setStage("processing");
         } else if (data.status === "completed") {
           setDownloading(false);
-          setProgress(0);
+          setProgress(100);
           setStatusText("Completed!");
-          fetchSongs();
+          setStage("completed");
         } else if (data.status === "starting") {
-          setStatusText("Starting download...");
+          setStatusText("Starting downloader...");
+          setStage("starting");
         } else if (data.status === "error") {
           setStatusText(`Error: ${data.message}`);
+          setErrorMsg(data.message || "Unknown error");
           setDownloading(false);
+          setStage("error");
         }
-      } catch (e) {
-         // ignore
+      } catch {
+        // ignore parse errors
       }
     });
 
@@ -65,55 +107,192 @@ export const Downloader: React.FC<DownloaderProps> = ({ onSongSelected }) => {
     setDownloading(true);
     setProgress(0);
     setStatusText("Initializing...");
+    setStage("starting");
+    setErrorMsg("");
+    setFileName("");
     try {
       await invoke("download_youtube", { url });
     } catch (e) {
       console.error(e);
       setDownloading(false);
-      setStatusText(`Error: ${e}`);
+      setErrorMsg(`${e}`);
+      setStage("error");
     }
   };
 
-  return (
-    <div className="downloader-container">
-      <h2>Add New Song</h2>
-      <div className="input-group">
-        <input
-          type="text"
-          placeholder="Paste YouTube URL here..."
-          value={url}
-          disabled={downloading}
-          onChange={(e) => setUrl(e.target.value)}
-        />
-        <button className="btn" onClick={handleDownload} disabled={downloading || !url}>
-          {downloading ? "Downloading..." : "Download"}
-        </button>
-      </div>
+  const handleReset = () => {
+    setUrl("");
+    setStage("idle");
+    setProgress(0);
+    setStatusText("");
+    setErrorMsg("");
+    setFileName("");
+  };
 
-      {downloading && (
-        <div className="progress-container">
-          <div className="progress-bar" style={{ width: `${progress}%` }}></div>
-          <p className="progress-text">{statusText}</p>
-        </div>
-      )}
+  const currentStep = stageToStep[stage];
 
-      <div className="songs-list">
-        <h3>Available Songs</h3>
-        {songs.length === 0 ? (
-          <p>No songs downloaded yet.</p>
+  const stepItems = [
+    {
+      title: "Start",
+      icon:
+        stage === "starting" ? <LoadingOutlined /> : <CloudDownloadOutlined />,
+    },
+    {
+      title: "Download",
+      icon:
+        stage === "downloading" ? (
+          <LoadingOutlined />
+        ) : stage === "finished" ? (
+          <CheckCircleOutlined />
         ) : (
-          <ul>
-            {songs.map((song, i) => (
-              <li key={i} className="song-item">
-                <span className="song-title">{song.name}</span>
-                <button className="btn btn-play" onClick={() => onSongSelected(song)}>
-                  Load
-                </button>
-              </li>
-            ))}
-          </ul>
-        )}
-      </div>
+          <DownloadOutlined />
+        ),
+      description:
+        stage === "downloading" ? `${progress.toFixed(1)}%` : undefined,
+    },
+    {
+      title: "Process",
+      icon:
+        stage === "processing" ? <LoadingOutlined /> : <ScissorOutlined />,
+    },
+    {
+      title: "Complete",
+      icon: <SmileOutlined />,
+    },
+  ];
+
+  return (
+    <div className="panel-content">
+      <Title level={4} style={{ margin: 0 }}>
+        <DownloadOutlined style={{ marginRight: 8 }} />
+        Add Song
+      </Title>
+
+      <Card
+        style={{
+          background: "rgba(0,0,0,0.2)",
+          border: "1px solid rgba(255,255,255,0.06)",
+        }}
+        styles={{ body: { padding: 16 } }}
+      >
+        <Flex gap={10}>
+          <Input
+            placeholder="Paste YouTube link..."
+            prefix={
+              <LinkOutlined style={{ color: "rgba(255,255,255,0.3)" }} />
+            }
+            value={url}
+            disabled={downloading}
+            onChange={(e) => setUrl(e.target.value)}
+            onPressEnter={handleDownload}
+            size="large"
+            allowClear
+          />
+          <Button
+            type="primary"
+            size="large"
+            icon={<DownloadOutlined />}
+            onClick={handleDownload}
+            loading={downloading}
+            disabled={downloading || !url}
+            style={{
+              background: downloading
+                ? undefined
+                : "linear-gradient(135deg, #ff007f, #6e00ff)",
+              border: "none",
+              minWidth: 100,
+            }}
+          >
+            {downloading ? "Downloading" : "Download"}
+          </Button>
+        </Flex>
+      </Card>
+
+      {stage !== "idle" && (
+        <Card
+          style={{
+            background: "rgba(0,0,0,0.15)",
+            border: "1px solid rgba(255,255,255,0.06)",
+          }}
+          styles={{ body: { padding: "16px 20px" } }}
+        >
+          <Space direction="vertical" size="middle" style={{ width: "100%" }}>
+            <Steps
+              current={currentStep}
+              size="small"
+              items={stepItems}
+              status={stage === "error" ? "error" : undefined}
+            />
+
+            {stage === "downloading" && (
+              <Progress
+                percent={Math.round(progress)}
+                strokeColor={{
+                  "0%": "#ff007f",
+                  "100%": "#6e00ff",
+                }}
+                trailColor="rgba(255,255,255,0.08)"
+                size={["100%", 14]}
+                format={(p) => `${p}%`}
+              />
+            )}
+
+            {(stage === "starting" ||
+              stage === "finished" ||
+              stage === "processing") && (
+                <Progress
+                  percent={100}
+                  strokeColor={{
+                    "0%": "#ff007f",
+                    "100%": "#6e00ff",
+                  }}
+                  trailColor="rgba(255,255,255,0.08)"
+                  size={["100%", 14]}
+                  status="active"
+                  format={() => statusText}
+                />
+              )}
+
+            {fileName && (
+              <Text
+                type="secondary"
+                ellipsis
+                style={{ fontSize: "0.8rem", display: "block" }}
+              >
+                📁 {fileName}
+              </Text>
+            )}
+
+            {stage === "completed" && (
+              <Alert
+                type="success"
+                message="Download complete! Song added to library."
+                showIcon
+                icon={<CheckCircleOutlined />}
+                action={
+                  <Button size="small" onClick={handleReset}>
+                    Download another
+                  </Button>
+                }
+              />
+            )}
+
+            {stage === "error" && (
+              <Alert
+                type="error"
+                message="Download failed"
+                description={errorMsg}
+                showIcon
+                action={
+                  <Button size="small" danger onClick={handleReset}>
+                    Retry
+                  </Button>
+                }
+              />
+            )}
+          </Space>
+        </Card>
+      )}
     </div>
   );
 };

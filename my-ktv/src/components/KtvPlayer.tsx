@@ -1,7 +1,23 @@
-import React, { useRef, useEffect, useState } from "react";
-import { invoke } from "@tauri-apps/api/core";
+import React, { useEffect, useRef, useState } from "react";
+import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import { Song } from "./Downloader";
-import { convertFileSrc } from '@tauri-apps/api/core';
+import {
+  Button,
+  Typography,
+  Alert,
+  Space,
+  Tag,
+  Flex,
+  Tooltip,
+} from "antd";
+import {
+  CaretRightOutlined,
+  PauseOutlined,
+  ArrowLeftOutlined,
+  SoundOutlined,
+} from "@ant-design/icons";
+
+const { Title, Text } = Typography;
 
 interface KtvPlayerProps {
   song: Song | null;
@@ -9,7 +25,6 @@ interface KtvPlayerProps {
 }
 
 export const KtvPlayer: React.FC<KtvPlayerProps> = ({ song, onClose }) => {
-
   const videoRef = useRef<HTMLVideoElement>(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
@@ -25,7 +40,7 @@ export const KtvPlayer: React.FC<KtvPlayerProps> = ({ song, onClose }) => {
       setErrorMsg("");
     } catch (e) {
       console.error(e);
-      setErrorMsg(`Error starting karaoke: ${e}`);
+      setErrorMsg(`Error starting KTV: ${e}`);
     }
   };
 
@@ -39,7 +54,7 @@ export const KtvPlayer: React.FC<KtvPlayerProps> = ({ song, onClose }) => {
       setIsPlaying(false);
     } catch (e) {
       console.error(e);
-      setErrorMsg(`Error stopping karaoke: ${e}`);
+      setErrorMsg(`Error stopping KTV: ${e}`);
     }
   };
 
@@ -51,15 +66,51 @@ export const KtvPlayer: React.FC<KtvPlayerProps> = ({ song, onClose }) => {
   }, []);
 
   return (
-    <div className="ktv-player">
-      <div className="ktv-header">
-        <h2>Now Playing: {song?.name || "None"}</h2>
-        <button className="btn btn-close" onClick={onClose}>
-          Exit
-        </button>
-      </div>
+    <div className="panel-content">
+      {/* Header */}
+      <Flex justify="space-between" align="center">
+        <Space>
+          <Tooltip title="Back to Library">
+            <Button
+              icon={<ArrowLeftOutlined />}
+              onClick={onClose}
+              shape="circle"
+              size="small"
+            />
+          </Tooltip>
+          <Title
+            level={4}
+            ellipsis
+            style={{ margin: 0, maxWidth: 600 }}
+          >
+            <SoundOutlined style={{ marginRight: 8 }} />
+            {song?.name || "No song selected"}
+          </Title>
+        </Space>
+        <Space>
+          {isPlaying && (
+            <>
+              <Tag color="#ff007f" className="pulse-tag">
+                🎤 LIVE
+              </Tag>
+              <Button
+                danger
+                size="small"
+                icon={<PauseOutlined />}
+                onClick={handleStop}
+                style={{
+                  fontWeight: 600,
+                }}
+              >
+                Stop KTV
+              </Button>
+            </>
+          )}
+        </Space>
+      </Flex>
 
-      <div className="video-container">
+      {/* Video */}
+      <div className="video-container" style={{ position: "relative" }}>
         {song ? (
           <video
             ref={videoRef}
@@ -69,23 +120,61 @@ export const KtvPlayer: React.FC<KtvPlayerProps> = ({ song, onClose }) => {
             className="bg-video"
           />
         ) : (
-          <div className="no-video">Please select a song first.</div>
+          <div className="no-video">
+            <Text type="secondary" style={{ fontSize: "1.1rem" }}>
+              Please select a song first
+            </Text>
+          </div>
+        )}
+        {isPlaying && <div className="video-overlay-glow" />}
+        {/* Start button overlay centered on video */}
+        {!isPlaying && song && (
+          <div
+            style={{
+              position: "absolute",
+              top: 0,
+              left: 0,
+              width: "100%",
+              height: "100%",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              zIndex: 10,
+            }}
+          >
+            <Button
+              type="primary"
+              size="large"
+              icon={<CaretRightOutlined />}
+              onClick={handleStart}
+              style={{
+                background: "linear-gradient(135deg, #ff007f, #6e00ff)",
+                border: "none",
+                height: 56,
+                paddingInline: 48,
+                fontSize: "1.1rem",
+                fontWeight: 600,
+                boxShadow: "0 4px 24px rgba(255,0,127,0.5)",
+                borderRadius: 28,
+              }}
+            >
+              Start KTV
+            </Button>
+          </div>
         )}
       </div>
 
-      {errorMsg && <div className="error-msg">{errorMsg}</div>}
-
-      <div className="player-controls">
-        {!isPlaying ? (
-          <button className="btn btn-play" onClick={handleStart} disabled={!song}>
-            ▶ Start KTV
-          </button>
-        ) : (
-          <button className="btn btn-stop" onClick={handleStop}>
-            ■ Stop KTV
-          </button>
-        )}
-      </div>
+      {/* Error */}
+      {errorMsg && (
+        <Alert
+          type="error"
+          message={errorMsg}
+          showIcon
+          closable
+          onClose={() => setErrorMsg("")}
+          style={{ borderRadius: 10 }}
+        />
+      )}
     </div>
   );
 };

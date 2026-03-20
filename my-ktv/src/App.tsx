@@ -1,10 +1,19 @@
 import { useState } from "react";
+import { ConfigProvider, Tabs, theme, Typography, Space } from "antd";
+import {
+  CustomerServiceOutlined,
+  DownloadOutlined,
+  PlayCircleOutlined,
+} from "@ant-design/icons";
 import { Downloader, Song } from "./components/Downloader";
 import { KtvPlayer } from "./components/KtvPlayer";
+import { Library } from "./components/Library";
 import "./App.css";
 
+const { Title, Text } = Typography;
+
 function App() {
-  const [activeTab, setActiveTab] = useState<"library" | "downloader" | "player">("library");
+  const [activeTab, setActiveTab] = useState<string>("library");
   const [selectedSong, setSelectedSong] = useState<Song | null>(null);
 
   const handleSongSelected = (song: Song) => {
@@ -12,61 +21,120 @@ function App() {
     setActiveTab("player");
   };
 
+  const tabItems = [
+    {
+      key: "library",
+      label: (
+        <span>
+          <CustomerServiceOutlined /> Library
+        </span>
+      ),
+      children: <Library onSongSelected={handleSongSelected} />,
+    },
+    {
+      key: "downloader",
+      label: (
+        <span>
+          <DownloadOutlined /> Download
+        </span>
+      ),
+      children: <Downloader />,
+    },
+    ...(selectedSong
+      ? [
+          {
+            key: "player",
+            label: (
+              <span>
+                <PlayCircleOutlined /> Player
+              </span>
+            ),
+            children: (
+              <KtvPlayer
+                song={selectedSong}
+                onClose={() => setActiveTab("library")}
+              />
+            ),
+          },
+        ]
+      : []),
+  ];
+
   return (
-    <>
-      <div className="orb orb-1"></div>
-      <div className="orb orb-2"></div>
+    <ConfigProvider
+      theme={{
+        algorithm: theme.darkAlgorithm,
+        token: {
+          colorPrimary: "#ff007f",
+          colorBgContainer: "rgba(255, 255, 255, 0.04)",
+          colorBgElevated: "rgba(30, 20, 50, 0.95)",
+          borderRadius: 12,
+          fontFamily: "'Outfit', sans-serif",
+          fontSize: 14,
+          colorLink: "#ff3399",
+        },
+        components: {
+          Tabs: {
+            inkBarColor: "#ff007f",
+            itemActiveColor: "#ff3399",
+            itemSelectedColor: "#ff3399",
+            itemHoverColor: "#ff007f",
+            cardBg: "transparent",
+          },
+          Button: {
+            borderRadius: 10,
+          },
+          Input: {
+            colorBgContainer: "rgba(255, 255, 255, 0.06)",
+            colorBorder: "rgba(255, 255, 255, 0.15)",
+          },
+          Progress: {
+            defaultColor: "#ff007f",
+          },
+          List: {
+            colorBgContainer: "transparent",
+          },
+        },
+      }}
+    >
+      <div className="orb orb-1" />
+      <div className="orb orb-2" />
       <main className="app-container">
         <header className="header">
-          <h1>MyKTV Studio</h1>
-          <p>Next-Gen Rust Audio Experience</p>
+          <Title
+            level={1}
+            style={{
+              margin: 0,
+              fontSize: "2.4rem",
+              fontWeight: 800,
+              background: "linear-gradient(135deg, #ff007f, #6e00ff)",
+              WebkitBackgroundClip: "text",
+              WebkitTextFillColor: "transparent",
+              backgroundClip: "text",
+            }}
+          >
+            🎤 MyKTV
+          </Title>
+          <Text type="secondary" style={{ fontSize: "0.85rem" }}>
+            powered by rust audio api
+          </Text>
         </header>
 
-        <nav className="tabs">
-          <button 
-            className={`tab-btn ${activeTab === 'library' ? 'active' : ''}`}
-            onClick={() => setActiveTab('library')}
-          >
-            Library
-          </button>
-          <button 
-            className={`tab-btn ${activeTab === 'downloader' ? 'active' : ''}`}
-            onClick={() => setActiveTab('downloader')}
-          >
-            Downloader
-          </button>
-          {selectedSong && (
-            <button 
-              className={`tab-btn ${activeTab === 'player' ? 'active' : ''}`}
-              onClick={() => setActiveTab('player')}
-            >
-              Player
-            </button>
-          )}
-        </nav>
-
-        <div className="content-area">
-          {activeTab === "library" && (
-             <div className="library-view">
-               <Downloader onSongSelected={handleSongSelected} />
-             </div>
-          )}
-
-          {activeTab === "downloader" && (
-             <div className="downloader-view">
-               <Downloader onSongSelected={handleSongSelected} />
-             </div>
-          )}
-
-          {activeTab === "player" && (
-            <KtvPlayer 
-              song={selectedSong} 
-              onClose={() => setActiveTab("library")}
-            />
-          )}
-        </div>
+        <Space direction="vertical" size={0} style={{ flex: 1, minHeight: 0 }}>
+          <Tabs
+            activeKey={activeTab}
+            onChange={setActiveTab}
+            items={tabItems}
+            centered
+            size="large"
+            style={{ flex: 1 }}
+            tabBarStyle={{
+              marginBottom: 0,
+            }}
+          />
+        </Space>
       </main>
-    </>
+    </ConfigProvider>
   );
 }
 
