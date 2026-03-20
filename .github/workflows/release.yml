@@ -31,6 +31,9 @@ jobs:
 
     runs-on: ${{ matrix.os }}
 
+    permissions:
+      contents: write
+
     defaults:
       run:
         working-directory: ./my-ktv
