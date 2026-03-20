@@ -23,7 +23,7 @@ A desktop application built with Tauri 2. It performs real-time audio mixing at 
 - 🎬 Synchronized music video playback
 - 🗂️ Local song library management
 
-👉 **[Download and try my-ktv now!](./my-ktv)** See [my-ktv/README.md](./my-ktv/README.md) for setup instructions.
+👉 **[Download the latest release](https://github.com/leon123858/myKTV/releases/latest)** (Windows / macOS) or build from source — see [my-ktv/README.md](./my-ktv/README.md) for details.
 
 ## 🌐 web-ktv — Web Demo
 

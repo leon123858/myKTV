@@ -1,0 +1,13 @@
+[project]
+name = "downloader"
+version = "0.1.0"
+description = "YouTube video downloader sidecar for my-ktv"
+requires-python = ">=3.10"
+dependencies = [
+    "yt-dlp>=2024.0.0",
+]
+
+[tool.uv]
+dev-dependencies = [
+    "pyinstaller>=6.0.0",
+]

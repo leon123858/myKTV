@@ -3366,6 +3366,8 @@ dependencies = [
 [[package]]
 name = "rust-audio-api"
 version = "0.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ece2b12cba4da7a7103f982ddc141659616a0f836a59a24dca6898c18dc195fa"
 dependencies = [
  "anyhow",
  "cpal",
