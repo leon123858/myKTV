@@ -28,13 +28,6 @@ jobs:
               cd my-ktv/python-downloader
               uv run pyinstaller --noconfirm --onefile downloader.py
               cp dist/downloader ../src-tauri/downloader-aarch64-apple-darwin
-          - os: macos-13
-            target: x86_64-apple-darwin
-            sidecar-ext: ""
-            sidecar-cmd: |
-              cd my-ktv/python-downloader
-              uv run pyinstaller --noconfirm --onefile downloader.py
-              cp dist/downloader ../src-tauri/downloader-x86_64-apple-darwin
 
     runs-on: ${{ matrix.os }}
 
