@@ -8,6 +8,13 @@ Sing karaoke at home with just a microphone — no hardware mixer needed. All au
 
 Pre-built installers for Windows and macOS are available on the [**Releases**](https://github.com/leon123858/myKTV/releases/latest) page.
 
+> [!WARNING]
+> **macOS Users:** Because this application is not signed with an Apple Developer account, macOS will report an error when you try to run it directly (e.g., "app is damaged").
+> You must manually clear the extended attributes (quarantine flag) before opening it by running the following command in your terminal:
+> ```bash
+> sudo xattr -cr /Applications/my-ktv.app
+> ```
+
 ## ✨ Features
 
 - 🎙️ **Real-time mixing** — Dry voice + Echo + Reverb mixed and output in real time
