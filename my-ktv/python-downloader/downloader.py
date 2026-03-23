@@ -4,6 +4,24 @@ import yt_dlp
 import os
 import subprocess
 
+def get_ffmpeg_path():
+    """
+    取得 ffmpeg 的執行路徑。
+    區分三種場合:
+    1. CD package (PyInstaller 打包的 frozen 執行檔): 使用與執行檔同目錄下的 ffmpeg，若無則 fallback
+    2. local package / direct run: 直接調用環境變數中的 ffmpeg
+    """
+    if getattr(sys, 'frozen', False):
+        base_dir = os.path.dirname(sys.executable)
+        ffmpeg_exe_name = "ffmpeg.exe" if sys.platform == "win32" else "ffmpeg"
+        ffmpeg_path = os.path.join(base_dir, ffmpeg_exe_name)
+        if os.path.exists(ffmpeg_path):
+            return ffmpeg_path
+        else:
+            return "ffmpeg"
+    else:
+        return "ffmpeg"
+
 def my_hook(d):
     if d['status'] == 'downloading':
         # Send progress to stdout as JSON
@@ -39,6 +57,7 @@ def download_video(url, output_dir):
             'key': 'FFmpegVideoConvertor',
             'preferedformat': 'mp4',
         }],
+        'ffmpeg_location': get_ffmpeg_path(),
     }
 
     try:
@@ -57,9 +76,10 @@ def download_video(url, output_dir):
                 
                 print(json.dumps({"status": "processing", "message": "Splitting video and audio"}), flush=True)
                 
-                subprocess.run(['ffmpeg', '-y', '-i', final_mp4, '-c:v', 'copy', '-an', video_out], 
+                ffmpeg_bin = get_ffmpeg_path()
+                subprocess.run([ffmpeg_bin, '-y', '-i', final_mp4, '-c:v', 'copy', '-an', video_out], 
                                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-                subprocess.run(['ffmpeg', '-y', '-i', final_mp4, '-q:a', '2', '-vn', audio_out], 
+                subprocess.run([ffmpeg_bin, '-y', '-i', final_mp4, '-q:a', '2', '-vn', audio_out], 
                                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             
             print(json.dumps({"status": "completed"}), flush=True)

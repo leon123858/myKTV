@@ -31,7 +31,8 @@
     "active": true,
     "targets": "all",
     "externalBin": [
-      "downloader"
+      "downloader",
+      "ffmpeg"
     ],
     "icon": [
       "icons/32x32.png",

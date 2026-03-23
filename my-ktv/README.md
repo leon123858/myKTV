@@ -8,8 +8,6 @@ Sing karaoke at home with just a microphone — no hardware mixer needed. All au
 
 Pre-built installers for Windows and macOS are available on the [**Releases**](https://github.com/leon123858/myKTV/releases/latest) page.
 
-> **Note:** [FFmpeg](https://ffmpeg.org/) must be installed on your system for YouTube download functionality.
-
 ## ✨ Features
 
 - 🎙️ **Real-time mixing** — Dry voice + Echo + Reverb mixed and output in real time
