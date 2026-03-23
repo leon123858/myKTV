@@ -60,7 +60,7 @@ jobs:
         run: uv sync
 
       - name: Build sidecar binary
-        working-directory: .
+        working-directory: my-ktv
         run: ${{ matrix.sidecar-cmd }}
 
       - name: Install frontend dependencies
