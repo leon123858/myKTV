@@ -77,7 +77,7 @@ def download_video(url, output_dir):
                 print(json.dumps({"status": "processing", "message": "Splitting video and audio"}), flush=True)
                 
                 ffmpeg_bin = get_ffmpeg_path()
-                subprocess.run([ffmpeg_bin, '-y', '-i', final_mp4, '-c:v', 'copy', '-an', video_out], 
+                subprocess.run([ffmpeg_bin, '-y', '-i', final_mp4, '-c:v', 'libx264', '-preset', 'fast', '-crf', '18', '-an', video_out], 
                                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
                 subprocess.run([ffmpeg_bin, '-y', '-i', final_mp4, '-q:a', '2', '-vn', audio_out], 
                                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
