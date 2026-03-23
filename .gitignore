@@ -13,6 +13,7 @@
 
 # User-specific files (MonoDevelop/Xamarin Studio)
 *.userprefs
+.DS_Store
 
 # Mono auto generated files
 mono_crash.*
@@ -417,3 +418,4 @@ FodyWeavers.xsd
 *.msm
 *.msp
 rust-audio-api/examples/resource/music-ch.mp3
+my-ktv/src-tauri/downloader-aarch64-apple-darwin

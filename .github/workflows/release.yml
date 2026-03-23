@@ -16,18 +16,10 @@ jobs:
         include:
           - os: windows-latest
             target: x86_64-pc-windows-msvc
-            sidecar-ext: .exe
-            sidecar-cmd: |
-              cd my-ktv/python-downloader
-              uv run pyinstaller --noconfirm --onefile downloader.py
-              copy dist\downloader.exe ..\src-tauri\downloader-x86_64-pc-windows-msvc.exe
+            sidecar-cmd: yarn run build:sidecar:win
           - os: macos-latest
             target: aarch64-apple-darwin
-            sidecar-ext: ""
-            sidecar-cmd: |
-              cd my-ktv/python-downloader
-              uv run pyinstaller --noconfirm --onefile downloader.py
-              cp dist/downloader ../src-tauri/downloader-aarch64-apple-darwin
+            sidecar-cmd: yarn run build:sidecar:mac
 
     runs-on: ${{ matrix.os }}
 
@@ -62,27 +54,14 @@ jobs:
       - name: Install uv
         uses: astral-sh/setup-uv@v6
 
-      - name: Build Python sidecar
+      - name: Build Python sidecar UV env
         shell: bash
-        working-directory: .
-        run: |
-          cd my-ktv/python-downloader
-          uv sync
-          uv run pyinstaller --noconfirm --onefile downloader.py
+        working-directory: my-ktv/python-downloader
+        run: uv sync
 
-      - name: Copy sidecar binary (Windows)
-        if: runner.os == 'Windows'
-        shell: pwsh
+      - name: Build sidecar binary
         working-directory: .
-        run: |
-          Copy-Item "my-ktv/python-downloader/dist/downloader.exe" "my-ktv/src-tauri/downloader-x86_64-pc-windows-msvc.exe"
-
-      - name: Copy sidecar binary (macOS)
-        if: runner.os == 'macOS'
-        shell: bash
-        working-directory: .
-        run: |
-          cp my-ktv/python-downloader/dist/downloader my-ktv/src-tauri/downloader-${{ matrix.target }}
+        run: ${{ matrix.sidecar-cmd }}
 
       - name: Install frontend dependencies
         run: yarn install --frozen-lockfile
